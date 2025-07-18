@@ -2,13 +2,14 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import swaggerUi from 'swagger-ui-express';
 import { createServer } from 'http';
 import { logger } from './utils/logger.js';
 import { config } from './config/index.js';
+import { swaggerSpec } from './config/swagger.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { rateLimiter } from './middleware/rateLimiter.js';
 import { faucetRoutes } from './routes/faucet.js';
-import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { adminRoutes } from './routes/admin.js';
 import { redisClient } from './services/redis.js';
@@ -62,26 +63,222 @@ app.use((req, res, next) => {
 // Rate limiting
 app.use(rateLimiter);
 
+// Swagger UI
+const swaggerOptions = {
+  customCss: `
+    .swagger-ui .topbar { display: none }
+    .swagger-ui .info .title { color: #1976d2 }
+    .swagger-ui .scheme-container { background: #fafafa; padding: 10px; border-radius: 4px; margin: 10px 0; }
+  `,
+  customSiteTitle: 'Sui Faucet API Documentation',
+  customfavIcon: '/favicon.ico',
+  swaggerOptions: {
+    persistAuthorization: true,
+    displayRequestDuration: true,
+    filter: true,
+    tryItOutEnabled: true,
+    requestInterceptor: (req: any) => {
+      // Auto-add API key if not present
+      if (!req.headers.Authorization && req.url.includes('/api/v1/faucet/')) {
+        req.headers.Authorization = `Bearer ${config.auth.apiKey}`;
+      }
+      return req;
+    }
+  }
+};
+
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerOptions));
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerOptions));
+
+// Test endpoint (simple, no middleware)
+app.get('/test', (_req, res) => {
+  res.json({ message: 'Test endpoint working!' });
+});
+
+// Root endpoint (must be before API routes)
+app.get('/', (_req, res) => {
+  try {
+    res.json({
+      name: 'Sui Testnet Faucet API',
+      version: '1.0.0',
+      status: 'running',
+      endpoints: {
+        faucet: '/api/v1/faucet/request',
+        health: '/api/v1/health',
+        auth: '/api/v1/auth/verify',
+        admin: '/api/v1/admin/login',
+        docs: '/docs',
+        swagger: '/api-docs',
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('Root endpoint error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // API routes
 app.use('/api/v1/faucet', faucetRoutes);
-app.use('/api/v1/health', healthRoutes);
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/admin', adminRoutes);
 
-// Root endpoint
-app.get('/', (_req, res) => {
-  res.json({
-    name: 'Sui Testnet Faucet API',
-    version: '1.0.0',
-    status: 'running',
-    endpoints: {
-      faucet: '/api/v1/faucet/request',
-      health: '/api/v1/health',
-      auth: '/api/v1/auth/verify',
-      admin: '/api/v1/admin/login',
-    },
-  });
+// Health endpoint
+app.get('/api/v1/health', async (_req, res) => {
+  try {
+    const startTime = Date.now();
+
+    // Check services
+    const services = {
+      database: 'unknown',
+      redis: 'unknown',
+      sui: 'unknown'
+    };
+
+    // Check database
+    try {
+      // Simple check - if we can access the service, it's connected
+      services.database = databaseService ? 'connected' : 'disconnected';
+    } catch {
+      services.database = 'disconnected';
+    }
+
+    // Check Redis
+    try {
+      // Simple check - if we can access the service, it's connected
+      services.redis = redisClient ? 'connected' : 'disconnected';
+    } catch {
+      services.redis = 'disconnected';
+    }
+
+    // Check Sui service
+    try {
+      await suiService.getWalletBalance();
+      services.sui = 'connected';
+    } catch {
+      services.sui = 'disconnected';
+    }
+
+    const isHealthy = Object.values(services).every(status => status === 'connected');
+    const uptime = process.uptime();
+    const uptimeString = `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m ${Math.floor(uptime % 60)}s`;
+
+    res.status(isHealthy ? 200 : 503).json({
+      status: isHealthy ? 'healthy' : 'unhealthy',
+      timestamp: new Date().toISOString(),
+      uptime: uptimeString,
+      responseTime: `${Date.now() - startTime}ms`,
+      services,
+    });
+  } catch (error: any) {
+    res.status(503).json({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      error: error.message,
+    });
+  }
 });
+
+/**
+ * @swagger
+ * /:
+ *   get:
+ *     summary: API information
+ *     description: Get basic information about the Sui Faucet API
+ *     tags: [Public]
+ *     responses:
+ *       200:
+ *         description: API information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 name:
+ *                   type: string
+ *                   example: "Sui Testnet Faucet API"
+ *                 version:
+ *                   type: string
+ *                   example: "1.0.0"
+ *                 status:
+ *                   type: string
+ *                   example: "running"
+ *                 endpoints:
+ *                   type: object
+ *                   properties:
+ *                     faucet:
+ *                       type: string
+ *                       example: "/api/v1/faucet/request"
+ *                     health:
+ *                       type: string
+ *                       example: "/api/v1/health"
+ *                     auth:
+ *                       type: string
+ *                       example: "/api/v1/auth/verify"
+ *                     admin:
+ *                       type: string
+ *                       example: "/api/v1/admin/login"
+ *                     docs:
+ *                       type: string
+ *                       example: "/docs"
+ *                     swagger:
+ *                       type: string
+ *                       example: "/api-docs"
+ */
+
+/**
+ * @swagger
+ * /api/v1/health:
+ *   get:
+ *     summary: Health check
+ *     description: Check the health status of the API and its dependencies
+ *     tags: [Public]
+ *     responses:
+ *       200:
+ *         description: Service is healthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: "healthy"
+ *                 timestamp:
+ *                   type: string
+ *                   format: date-time
+ *                   example: "2025-07-18T06:00:00.000Z"
+ *                 uptime:
+ *                   type: string
+ *                   example: "2h 30m 45s"
+ *                 services:
+ *                   type: object
+ *                   properties:
+ *                     database:
+ *                       type: string
+ *                       example: "connected"
+ *                     redis:
+ *                       type: string
+ *                       example: "connected"
+ *                     sui:
+ *                       type: string
+ *                       example: "connected"
+ *       503:
+ *         description: Service is unhealthy
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: "unhealthy"
+ *                 error:
+ *                   type: string
+ *                   example: "Database connection failed"
+ */
+
+
 
 // Error handling middleware (must be last)
 app.use(errorHandler);

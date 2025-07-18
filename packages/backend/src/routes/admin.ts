@@ -10,6 +10,155 @@ import Joi from 'joi';
 
 const router = Router();
 
+/**
+ * @swagger
+ * /api/v1/admin/login:
+ *   post:
+ *     summary: Admin login
+ *     description: Authenticate admin user and get access token
+ *     tags: [Admin]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - username
+ *               - password
+ *             properties:
+ *               username:
+ *                 type: string
+ *                 example: "admin"
+ *               password:
+ *                 type: string
+ *                 example: "adminsuisuisui"
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/SuccessResponse'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         token:
+ *                           type: string
+ *                           example: "YWRtaW5fMTc1MjgxODQzMDY2NF8wLjI2NTM2ODYyOTYyMTIyMzY1"
+ *                         expiresIn:
+ *                           type: string
+ *                           example: "24h"
+ *                         user:
+ *                           type: object
+ *                           properties:
+ *                             username:
+ *                               type: string
+ *                               example: "admin"
+ *                             role:
+ *                               type: string
+ *                               example: "super_admin"
+ *                             lastLogin:
+ *                               type: string
+ *                               format: date-time
+ *       401:
+ *         description: Invalid credentials
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @swagger
+ * /api/v1/admin/dashboard:
+ *   get:
+ *     summary: Get admin dashboard data
+ *     description: Get system overview including wallet balance, statistics, and health status
+ *     tags: [Admin]
+ *     security:
+ *       - AdminAuth: []
+ *     responses:
+ *       200:
+ *         description: Dashboard data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/SuccessResponse'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         system:
+ *                           type: object
+ *                           properties:
+ *                             status:
+ *                               type: string
+ *                               example: "healthy"
+ *                             uptime:
+ *                               type: string
+ *                               example: "2h 30m"
+ *                             version:
+ *                               type: string
+ *                               example: "1.0.0"
+ *                         wallet:
+ *                           type: object
+ *                           properties:
+ *                             address:
+ *                               $ref: '#/components/schemas/WalletAddress'
+ *                             balance:
+ *                               $ref: '#/components/schemas/Amount'
+ *                             network:
+ *                               type: string
+ *                               example: "testnet"
+ *                         stats:
+ *                           type: object
+ *                           properties:
+ *                             redis:
+ *                               type: object
+ *                               properties:
+ *                                 totalRequests:
+ *                                   type: number
+ *                                   example: 150
+ *                                 successfulRequests:
+ *                                   type: number
+ *                                   example: 145
+ *                                 failedRequests:
+ *                                   type: number
+ *                                   example: 5
+ *                                 successRate:
+ *                                   type: string
+ *                                   example: "96.67%"
+ *                             database:
+ *                               type: object
+ *                               properties:
+ *                                 totalTransactions:
+ *                                   type: number
+ *                                   example: 145
+ *                                 successfulTransactions:
+ *                                   type: number
+ *                                   example: 140
+ *                                 failedTransactions:
+ *                                   type: number
+ *                                   example: 5
+ *                                 totalAmountDistributed:
+ *                                   $ref: '#/components/schemas/Amount'
+ *                                 successRate:
+ *                                   type: string
+ *                                   example: "96.55%"
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
 // Admin login schema
 const adminLoginSchema = Joi.object({
   username: Joi.string().required(),
@@ -463,6 +612,246 @@ router.get('/activities',
     }
   })
 );
+
+/**
+ * @swagger
+ * /api/v1/admin/faucet:
+ *   get:
+ *     summary: Get faucet wallet information
+ *     description: Get complete information about the faucet wallet including balance, configuration, and status
+ *     tags: [Admin Faucet]
+ *     security:
+ *       - AdminAuth: []
+ *     responses:
+ *       200:
+ *         description: Faucet wallet information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/SuccessResponse'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         wallet:
+ *                           type: object
+ *                           properties:
+ *                             address:
+ *                               $ref: '#/components/schemas/WalletAddress'
+ *                             balance:
+ *                               $ref: '#/components/schemas/Amount'
+ *                             network:
+ *                               type: string
+ *                               example: "testnet"
+ *                             rpcUrl:
+ *                               type: string
+ *                               example: "https://fullnode.testnet.sui.io:443"
+ *                         config:
+ *                           type: object
+ *                           properties:
+ *                             defaultAmount:
+ *                               $ref: '#/components/schemas/Amount'
+ *                             maxAmount:
+ *                               $ref: '#/components/schemas/Amount'
+ *                         status:
+ *                           type: object
+ *                           properties:
+ *                             isActive:
+ *                               type: boolean
+ *                               example: true
+ *                             lowBalanceWarning:
+ *                               type: boolean
+ *                               example: false
+ *                             minimumBalance:
+ *                               $ref: '#/components/schemas/Amount'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @swagger
+ * /api/v1/admin/faucet/balance:
+ *   get:
+ *     summary: Get real-time faucet balance
+ *     description: Get the current balance of the faucet wallet
+ *     tags: [Admin Faucet]
+ *     security:
+ *       - AdminAuth: []
+ *     responses:
+ *       200:
+ *         description: Current faucet balance
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/SuccessResponse'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         address:
+ *                           $ref: '#/components/schemas/WalletAddress'
+ *                         balance:
+ *                           $ref: '#/components/schemas/Amount'
+ *                         network:
+ *                           type: string
+ *                           example: "testnet"
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @swagger
+ * /api/v1/admin/faucet/stats:
+ *   get:
+ *     summary: Get faucet usage statistics
+ *     description: Get detailed statistics about faucet usage including daily breakdown
+ *     tags: [Admin Faucet]
+ *     security:
+ *       - AdminAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: days
+ *         schema:
+ *           type: integer
+ *           default: 7
+ *           minimum: 1
+ *           maximum: 30
+ *         description: Number of days to include in statistics
+ *     responses:
+ *       200:
+ *         description: Faucet usage statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/SuccessResponse'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         overview:
+ *                           type: object
+ *                           properties:
+ *                             totalTransactions:
+ *                               type: number
+ *                               example: 150
+ *                             successfulTransactions:
+ *                               type: number
+ *                               example: 145
+ *                             failedTransactions:
+ *                               type: number
+ *                               example: 5
+ *                             totalDistributed:
+ *                               $ref: '#/components/schemas/Amount'
+ *                             successRate:
+ *                               type: string
+ *                               example: "96.67%"
+ *                         dailyStats:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               date:
+ *                                 type: string
+ *                                 format: date
+ *                                 example: "2025-07-17"
+ *                               transactions:
+ *                                 type: number
+ *                                 example: 25
+ *                               successfulTransactions:
+ *                                 type: number
+ *                                 example: 24
+ *                               totalAmount:
+ *                                 $ref: '#/components/schemas/Amount'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @swagger
+ * /api/v1/admin/faucet/test:
+ *   post:
+ *     summary: Test faucet transaction
+ *     description: Send a test transaction from the faucet (admin only)
+ *     tags: [Admin Faucet]
+ *     security:
+ *       - AdminAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - walletAddress
+ *             properties:
+ *               walletAddress:
+ *                 $ref: '#/components/schemas/WalletAddress'
+ *               amount:
+ *                 type: string
+ *                 example: "100000000"
+ *                 description: "Amount in mist (optional, uses default if not provided)"
+ *     responses:
+ *       200:
+ *         description: Test transaction successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/SuccessResponse'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         transactionHash:
+ *                           $ref: '#/components/schemas/TransactionHash'
+ *                         amount:
+ *                           $ref: '#/components/schemas/Amount'
+ *                         walletAddress:
+ *                           $ref: '#/components/schemas/WalletAddress'
+ *                         network:
+ *                           type: string
+ *                           example: "testnet"
+ *                         explorerUrl:
+ *                           type: string
+ *                           example: "https://suiscan.xyz/testnet/tx/5AbRLKAT9cr66TNEvpGwbz4teVDSJc7qZcuDGuukDa69"
+ *       400:
+ *         description: Invalid request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Transaction failed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
 
 // GET /api/v1/admin/faucet - Get faucet wallet information
 router.get('/faucet',

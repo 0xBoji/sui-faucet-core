@@ -11,6 +11,89 @@ import { logFaucetRequest, logger } from '../utils/logger.js';
 
 const router = Router();
 
+/**
+ * @swagger
+ * /api/v1/faucet/request:
+ *   post:
+ *     summary: Request SUI testnet tokens
+ *     description: |
+ *       Request SUI testnet tokens for development purposes.
+ *
+ *       **Rate Limits:**
+ *       - 1 request per hour per wallet address
+ *       - 100 requests per hour per IP address
+ *
+ *       **Amount:** 0.1 SUI per request (100,000,000 mist)
+ *     tags: [Faucet]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - walletAddress
+ *             properties:
+ *               walletAddress:
+ *                 $ref: '#/components/schemas/WalletAddress'
+ *           examples:
+ *             example1:
+ *               summary: Valid wallet address
+ *               value:
+ *                 walletAddress: "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+ *     responses:
+ *       200:
+ *         description: Tokens sent successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/SuccessResponse'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         transactionHash:
+ *                           $ref: '#/components/schemas/TransactionHash'
+ *                         amount:
+ *                           $ref: '#/components/schemas/Amount'
+ *                         walletAddress:
+ *                           $ref: '#/components/schemas/WalletAddress'
+ *                         network:
+ *                           type: string
+ *                           example: "testnet"
+ *                         explorerUrl:
+ *                           type: string
+ *                           example: "https://suiscan.xyz/testnet/tx/5AbRLKAT9cr66TNEvpGwbz4teVDSJc7qZcuDGuukDa69"
+ *       400:
+ *         description: Invalid request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       401:
+ *         description: Unauthorized
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       429:
+ *         description: Rate limit exceeded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ *       500:
+ *         description: Server error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
 // Faucet request interface
 interface FaucetRequestBody {
   walletAddress: string;

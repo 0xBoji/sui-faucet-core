@@ -1,0 +1,177 @@
+# Terraform Plan Workflow
+name: Terraform Plan
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-*.yml'
+
+env:
+  TF_VERSION: '1.6.0'
+  AWS_REGION: 'us-west-2'
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        environment: [staging, production]
+    
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        role-session-name: terraform-plan-${{ matrix.environment }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+
+    - name: Terraform Format Check
+      id: fmt
+      run: terraform fmt -check -recursive
+      working-directory: terraform
+      continue-on-error: true
+
+    - name: Terraform Init
+      id: init
+      run: |
+        terraform init \
+          -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+          -backend-config="key=sui-faucet/${{ matrix.environment }}/terraform.tfstate" \
+          -backend-config="region=${{ env.AWS_REGION }}" \
+          -backend-config="dynamodb_table=${{ secrets.TF_STATE_LOCK_TABLE }}"
+      working-directory: terraform
+
+    - name: Terraform Validate
+      id: validate
+      run: terraform validate -no-color
+      working-directory: terraform
+
+    - name: Terraform Plan
+      id: plan
+      run: |
+        terraform plan \
+          -var-file="environments/${{ matrix.environment }}.tfvars" \
+          -var="environment=${{ matrix.environment }}" \
+          -no-color \
+          -out=tfplan
+      working-directory: terraform
+      continue-on-error: true
+
+    - name: Save Plan Output
+      run: |
+        terraform show -no-color tfplan > tfplan.txt
+      working-directory: terraform
+
+    - name: Upload Plan Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-plan-${{ matrix.environment }}
+        path: |
+          terraform/tfplan
+          terraform/tfplan.txt
+        retention-days: 5
+
+    - name: Comment PR with Plan
+      uses: actions/github-script@v7
+      if: github.event_name == 'pull_request'
+      env:
+        PLAN: "${{ steps.plan.outputs.stdout }}"
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const fs = require('fs');
+          const plan = fs.readFileSync('terraform/tfplan.txt', 'utf8');
+          const maxLength = 65000; // GitHub comment limit
+          const truncatedPlan = plan.length > maxLength ? 
+            plan.substring(0, maxLength) + '\n\n... (truncated)' : plan;
+
+          const output = `## Terraform Plan - ${{ matrix.environment }}
+
+          #### Terraform Format and Style 🖌\`${{ steps.fmt.outcome }}\`
+          #### Terraform Initialization ⚙️\`${{ steps.init.outcome }}\`
+          #### Terraform Validation 🤖\`${{ steps.validate.outcome }}\`
+          #### Terraform Plan 📖\`${{ steps.plan.outcome }}\`
+
+          <details><summary>Show Plan</summary>
+
+          \`\`\`terraform
+          ${truncatedPlan}
+          \`\`\`
+
+          </details>
+
+          *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`, Environment: \`${{ matrix.environment }}\`*`;
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: output
+          })
+
+    - name: Terraform Plan Status
+      if: steps.plan.outcome == 'failure'
+      run: exit 1
+
+  # Security scan for Terraform
+  terraform-security:
+    name: Terraform Security Scan
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Checkov
+      uses: bridgecrewio/checkov-action@master
+      with:
+        directory: terraform/
+        framework: terraform
+        output_format: sarif
+        output_file_path: checkov-results.sarif
+        quiet: true
+        soft_fail: true
+
+    - name: Upload Checkov results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: checkov-results.sarif
+
+    - name: Run TFSec
+      uses: aquasecurity/tfsec-action@v1.0.3
+      with:
+        working_directory: terraform
+        soft_fail: true
+
+    - name: Run Trivy for IaC
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'config'
+        scan-ref: 'terraform/'
+        format: 'sarif'
+        output: 'trivy-iac-results.sarif'
+
+    - name: Upload Trivy results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: trivy-iac-results.sarif

@@ -60,8 +60,14 @@ export const rateLimiter = async (req: Request, res: Response, next: NextFunctio
     const clientIP = getClientIP(req);
     const requestId = req.requestId || 'unknown';
 
-    // Skip rate limiting for health checks, auth, and admin endpoints
-    if (req.path.includes('/health') || req.path.includes('/auth') || req.path.includes('/admin')) {
+    // Skip rate limiting for health checks, auth, admin endpoints, docs, and root
+    if (req.path.includes('/health') ||
+        req.path.includes('/auth') ||
+        req.path.includes('/admin') ||
+        req.path.includes('/docs') ||
+        req.path.includes('/api-docs') ||
+        req.path === '/' ||
+        req.path === '/test') {
       return next();
     }
 

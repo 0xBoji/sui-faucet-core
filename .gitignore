@@ -33,3 +33,23 @@ coverage/
 # Misc
 .DS_Store
 *.local
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform/
+.terraform.lock.hcl
+terraform.tfplan
+terraform.tfplan.*
+
+# Terraform directories (all levels)
+**/.terraform/*
+**/terraform.tfstate*
+**/terraform.tfplan*
+**/.terraform.lock.hcl
+
+# Terraform bootstrap artifacts
+terraform/bootstrap/.terraform/
+terraform/bootstrap/terraform.tfstate*
+terraform/bootstrap/terraform.tfplan*

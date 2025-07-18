@@ -1,0 +1,225 @@
+# Application Deployment Workflow
+name: Deploy Application
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'terraform/**'
+      - 'docs/**'
+      - '*.md'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      image_tag:
+        description: 'Docker image tag to deploy'
+        required: false
+        default: 'latest'
+
+env:
+  AWS_REGION: 'us-west-2'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  deploy:
+    name: Deploy to ECS
+    runs-on: ubuntu-latest
+    
+    environment: 
+      name: ${{ github.event.inputs.environment || 'staging' }}
+    
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        role-session-name: deploy-${{ github.event.inputs.environment || 'staging' }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Get current task definition
+      id: current-task-def
+      run: |
+        CLUSTER_NAME="${{ secrets.ECS_CLUSTER_NAME }}"
+        SERVICE_NAME="${{ secrets.ECS_SERVICE_NAME }}"
+        
+        TASK_DEF_ARN=$(aws ecs describe-services \
+          --cluster $CLUSTER_NAME \
+          --services $SERVICE_NAME \
+          --query 'services[0].taskDefinition' \
+          --output text)
+        
+        aws ecs describe-task-definition \
+          --task-definition $TASK_DEF_ARN \
+          --query 'taskDefinition' > task-definition.json
+        
+        echo "task-definition-arn=$TASK_DEF_ARN" >> $GITHUB_OUTPUT
+
+    - name: Update task definition with new image
+      id: task-def
+      uses: aws-actions/amazon-ecs-render-task-definition@v1
+      with:
+        task-definition: task-definition.json
+        container-name: sui-faucet
+        image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.image_tag || github.sha }}
+
+    - name: Deploy to Amazon ECS
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+      with:
+        task-definition: ${{ steps.task-def.outputs.task-definition }}
+        service: ${{ secrets.ECS_SERVICE_NAME }}
+        cluster: ${{ secrets.ECS_CLUSTER_NAME }}
+        wait-for-service-stability: true
+
+    - name: Get application URL
+      id: app-url
+      run: |
+        LOAD_BALANCER_DNS=$(aws elbv2 describe-load-balancers \
+          --names "${{ secrets.LOAD_BALANCER_NAME }}" \
+          --query 'LoadBalancers[0].DNSName' \
+          --output text)
+        
+        APP_URL="https://$LOAD_BALANCER_DNS"
+        echo "application-url=$APP_URL" >> $GITHUB_OUTPUT
+        echo "Application URL: $APP_URL"
+
+    - name: Wait for deployment
+      run: |
+        echo "Waiting for deployment to complete..."
+        sleep 60
+
+    - name: Health check
+      run: |
+        APP_URL="${{ steps.app-url.outputs.application-url }}"
+        
+        echo "Running health check on $APP_URL"
+        for i in {1..20}; do
+          if curl -f -s "$APP_URL/api/v1/health"; then
+            echo "Health check passed!"
+            exit 0
+          fi
+          echo "Health check attempt $i failed, waiting 15 seconds..."
+          sleep 15
+        done
+        echo "Health check failed after 20 attempts"
+        exit 1
+
+    - name: Run integration tests
+      run: |
+        APP_URL="${{ steps.app-url.outputs.application-url }}"
+        
+        # Test API endpoints
+        echo "Testing API endpoints..."
+        
+        # Test health endpoint
+        curl -f "$APP_URL/api/v1/health"
+        
+        # Test Swagger docs
+        curl -f "$APP_URL/docs"
+        
+        # Test root endpoint
+        curl -f "$APP_URL/"
+        
+        echo "Integration tests passed!"
+
+    - name: Update deployment status
+      if: always()
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const environment = '${{ github.event.inputs.environment || 'staging' }}';
+          const status = '${{ job.status }}';
+          const appUrl = '${{ steps.app-url.outputs.application-url }}';
+          const imageTag = '${{ github.event.inputs.image_tag || github.sha }}';
+          
+          const deploymentData = {
+            environment,
+            status,
+            application_url: appUrl,
+            image_tag: imageTag,
+            deployed_at: new Date().toISOString()
+          };
+          
+          console.log('Deployment completed:');
+          console.log(JSON.stringify(deploymentData, null, 2));
+
+    - name: Notify Slack
+      if: always()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#deployments'
+        text: |
+          Deployment ${{ job.status }}
+          Environment: ${{ github.event.inputs.environment || 'staging' }}
+          Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.image_tag || github.sha }}
+          URL: ${{ steps.app-url.outputs.application-url }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # Rollback job (manual trigger)
+  rollback:
+    name: Rollback Deployment
+    runs-on: ubuntu-latest
+    if: failure() && github.event.inputs.environment
+    needs: deploy
+    
+    environment: 
+      name: ${{ github.event.inputs.environment }}
+    
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        role-session-name: rollback-${{ github.event.inputs.environment }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Rollback to previous task definition
+      run: |
+        CLUSTER_NAME="${{ secrets.ECS_CLUSTER_NAME }}"
+        SERVICE_NAME="${{ secrets.ECS_SERVICE_NAME }}"
+        
+        # Get previous task definition
+        PREVIOUS_TASK_DEF=$(aws ecs list-task-definitions \
+          --family-prefix sui-faucet-${{ github.event.inputs.environment }} \
+          --status ACTIVE \
+          --sort DESC \
+          --query 'taskDefinitionArns[1]' \
+          --output text)
+        
+        if [ "$PREVIOUS_TASK_DEF" != "None" ]; then
+          echo "Rolling back to: $PREVIOUS_TASK_DEF"
+          aws ecs update-service \
+            --cluster $CLUSTER_NAME \
+            --service $SERVICE_NAME \
+            --task-definition $PREVIOUS_TASK_DEF
+          
+          aws ecs wait services-stable \
+            --cluster $CLUSTER_NAME \
+            --services $SERVICE_NAME
+          
+          echo "Rollback completed successfully"
+        else
+          echo "No previous task definition found for rollback"
+          exit 1
+        fi

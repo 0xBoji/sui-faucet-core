@@ -7,6 +7,88 @@ import Joi from 'joi';
 
 const router = Router();
 
+/**
+ * @swagger
+ * /api/v1/auth/verify:
+ *   post:
+ *     summary: Verify API key
+ *     description: Verify if the provided API key is valid and active
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - apiKey
+ *             properties:
+ *               apiKey:
+ *                 type: string
+ *                 example: "suisuisui"
+ *                 description: "API key to verify"
+ *     responses:
+ *       200:
+ *         description: API key verification result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/SuccessResponse'
+ *                 - type: object
+ *                   properties:
+ *                     valid:
+ *                       type: boolean
+ *                       example: true
+ *       400:
+ *         description: Invalid request
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
+/**
+ * @swagger
+ * /api/v1/auth/key:
+ *   get:
+ *     summary: Get API key information
+ *     description: Get information about the current API key
+ *     tags: [Auth]
+ *     security:
+ *       - ApiKeyAuth: []
+ *     responses:
+ *       200:
+ *         description: API key information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/SuccessResponse'
+ *                 - type: object
+ *                   properties:
+ *                     data:
+ *                       type: object
+ *                       properties:
+ *                         keyInfo:
+ *                           type: object
+ *                           properties:
+ *                             type:
+ *                               type: string
+ *                               example: "api_key"
+ *                             permissions:
+ *                               type: array
+ *                               items:
+ *                                 type: string
+ *                               example: ["faucet_request"]
+ *       401:
+ *         description: Invalid or missing API key
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ErrorResponse'
+ */
+
 // API Key request schema
 const apiKeySchema = Joi.object({
   apiKey: Joi.string()
