@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../middleware/errorHandler.js';
 import { validate, faucetRequestSchema, normalizeSuiAddress } from '../validation/schemas.js';
 import { checkWalletRateLimit, trackSuccessfulWalletRequest } from '../middleware/rateLimiter.js';
-// import { requireApiKey } from '../middleware/apiKeyAuth.js'; // Commented out for public access
+import { requireApiKey } from '../middleware/apiKeyAuth.js'; // API key required for security
 import { suiService } from '../services/sui.js';
 import { redisClient } from '../services/redis.js';
 import { databaseService } from '../services/database.js';
@@ -134,10 +134,10 @@ router.get('/simple', (req: Request, res: Response) => {
   res.json({ message: 'Simple route OK!' });
 });
 
-// POST /api/v1/faucet/request - Request tokens from faucet (public access)
+// POST /api/v1/faucet/request - Request tokens from faucet (requires API key)
 router.post('/request',
-  // requireApiKey, // Commented out for public access
-  // validate(faucetRequestSchema, 'body'), // TEMPORARILY BYPASS VALIDATION
+  requireApiKey, // API key required for security
+  validate(faucetRequestSchema, 'body'), // Validation enabled
   asyncHandler(async (req: Request<{}, FaucetResponse, FaucetRequestBody>, res: Response<FaucetResponse>) => {
     console.log('🔥 DEBUG: Faucet request handler started');
     console.log('🔥 DEBUG: Request body:', req.body);
