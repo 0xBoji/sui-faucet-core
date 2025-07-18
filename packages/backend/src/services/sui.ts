@@ -152,17 +152,24 @@ class SuiService {
     requestId: string
   ): Promise<TransferResult> {
     try {
+      console.log(`🔥 DEBUG: sendTokens started for ${recipientAddress}, amount: ${amount}`);
+
       if (!this.isInitialized) {
         throw new Error('Sui service not initialized');
       }
 
+      console.log(`🔥 DEBUG: Sui service is initialized`);
+
       // Validate recipient address
       if (!this.validateAddress(recipientAddress)) {
+        console.log(`🔥 DEBUG: Invalid address format: ${recipientAddress}`);
         return {
           success: false,
           error: 'Invalid recipient address format',
         };
       }
+
+      console.log(`🔥 DEBUG: Address validation passed`);
 
       // Normalize address (add 0x prefix if missing)
       const normalizedAddress = recipientAddress.startsWith('0x') 

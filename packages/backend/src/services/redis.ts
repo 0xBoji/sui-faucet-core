@@ -194,10 +194,19 @@ class RedisService {
 
   async getLastWalletRequest(walletAddress: string): Promise<number | null> {
     try {
+      console.log(`🔥 DEBUG: getLastWalletRequest for ${walletAddress}`);
       const key = `${config.redis.keyPrefix}wallets:${walletAddress}`;
+      console.log(`🔥 DEBUG: Redis key: ${key}`);
+
       const timestamp = await this.client.get(key);
-      return timestamp ? parseInt(timestamp) : null;
+      console.log(`🔥 DEBUG: Redis get result:`, timestamp);
+
+      const result = timestamp ? parseInt(timestamp) : null;
+      console.log(`🔥 DEBUG: Parsed result:`, result);
+
+      return result;
     } catch (error) {
+      console.error(`🔥 DEBUG: Redis error:`, error);
       logError(error as Error, { context: 'Wallet get', walletAddress });
       return null;
     }

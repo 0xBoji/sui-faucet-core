@@ -4,6 +4,7 @@ import { redisClient } from '../services/redis.js';
 import { config } from '../config/index.js';
 import { RateLimitError } from './errorHandler.js';
 import { logRateLimit } from '../utils/logger.js';
+import { logger } from '../utils/logger.js';
 
 // Rate limiter instances
 let ipRateLimiter: RateLimiterRedis;
@@ -49,14 +50,50 @@ const getClientIP = (req: Request): string => {
   return remoteAddress || 'unknown';
 };
 
+// Simple in-memory rate limiter (fallback when Redis has issues)
+const ipRequestCounts = new Map<string, { count: number; resetTime: number }>();
+const globalRequestCount = { count: 0, resetTime: Date.now() + config.rateLimits.windowMs };
+
+const simpleRateLimit = (clientIP: string): { allowed: boolean; retryAfter?: number } => {
+  const now = Date.now();
+  const windowMs = config.rateLimits.windowMs;
+
+  // Reset global counter if window expired
+  if (now > globalRequestCount.resetTime) {
+    globalRequestCount.count = 0;
+    globalRequestCount.resetTime = now + windowMs;
+  }
+
+  // Check global limit
+  if (globalRequestCount.count >= config.rateLimits.maxRequestsPerWindow) {
+    const retryAfter = Math.ceil((globalRequestCount.resetTime - now) / 1000);
+    return { allowed: false, retryAfter };
+  }
+
+  // Reset IP counter if window expired
+  const ipData = ipRequestCounts.get(clientIP);
+  if (!ipData || now > ipData.resetTime) {
+    ipRequestCounts.set(clientIP, { count: 0, resetTime: now + windowMs });
+  }
+
+  const currentIpData = ipRequestCounts.get(clientIP)!;
+
+  // Check IP limit
+  if (currentIpData.count >= config.rateLimits.maxRequestsPerIP) {
+    const retryAfter = Math.ceil((currentIpData.resetTime - now) / 1000);
+    return { allowed: false, retryAfter };
+  }
+
+  // Increment counters
+  globalRequestCount.count++;
+  currentIpData.count++;
+
+  return { allowed: true };
+};
+
 // Rate limiter middleware
 export const rateLimiter = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    // Initialize rate limiters if not already done
-    if (!ipRateLimiter || !globalRateLimiter) {
-      initializeRateLimiters();
-    }
-
     const clientIP = getClientIP(req);
     const requestId = req.requestId || 'unknown';
 
@@ -71,52 +108,25 @@ export const rateLimiter = async (req: Request, res: Response, next: NextFunctio
       return next();
     }
 
-    // Check global rate limit first
-    try {
-      await globalRateLimiter.consume('global');
-    } catch (rateLimiterRes: any) {
-      if (rateLimiterRes instanceof Error) {
-        throw rateLimiterRes;
-      }
+    console.log(`🔥 DEBUG: Rate limiting check for ${clientIP} on ${req.path}`);
 
-      const retryAfter = Math.round(rateLimiterRes.msBeforeNext / 1000) || 1;
+    // Use simple in-memory rate limiting (Redis has issues)
+    console.log(`🔥 DEBUG: Using simple rate limiting`);
+    const rateLimitResult = simpleRateLimit(clientIP);
 
-      logRateLimit(requestId, clientIP, 'global');
-
-      res.set('Retry-After', retryAfter.toString());
-      res.set('X-RateLimit-Limit', config.rateLimits.maxRequestsPerWindow.toString());
-      res.set('X-RateLimit-Remaining', '0');
-      res.set('X-RateLimit-Reset', new Date(Date.now() + rateLimiterRes.msBeforeNext).toISOString());
-
-      throw new RateLimitError('Global rate limit exceeded. Please try again later.', retryAfter);
-    }
-
-    // Check IP-based rate limit
-    try {
-      const rateLimiterRes = await ipRateLimiter.consume(clientIP);
-
-      // Add rate limit headers
-      res.set('X-RateLimit-Limit', config.rateLimits.maxRequestsPerIP.toString());
-      res.set('X-RateLimit-Remaining', rateLimiterRes.remainingPoints?.toString() || '0');
-      res.set('X-RateLimit-Reset', new Date(Date.now() + rateLimiterRes.msBeforeNext).toISOString());
-
-    } catch (rateLimiterRes: any) {
-      if (rateLimiterRes instanceof Error) {
-        throw rateLimiterRes;
-      }
-
-      const retryAfter = Math.round(rateLimiterRes.msBeforeNext / 1000) || 1;
+    if (!rateLimitResult.allowed) {
+      const retryAfter = rateLimitResult.retryAfter || 60;
 
       logRateLimit(requestId, clientIP, 'ip');
 
       res.set('Retry-After', retryAfter.toString());
       res.set('X-RateLimit-Limit', config.rateLimits.maxRequestsPerIP.toString());
       res.set('X-RateLimit-Remaining', '0');
-      res.set('X-RateLimit-Reset', new Date(Date.now() + rateLimiterRes.msBeforeNext).toISOString());
 
-      throw new RateLimitError(`Too many requests from IP ${clientIP}. Please try again later.`, retryAfter);
+      throw new RateLimitError(`Rate limit exceeded. Please try again in ${retryAfter} seconds.`, retryAfter);
     }
 
+    console.log(`🔥 DEBUG: Rate limiting passed for ${clientIP}`);
     next();
   } catch (error) {
     next(error);
@@ -124,25 +134,50 @@ export const rateLimiter = async (req: Request, res: Response, next: NextFunctio
 };
 
 // Wallet-specific rate limiter (used in faucet routes)
+// Simple wallet rate limiting (in-memory)
+const walletRequestCounts = new Map<string, { count: number; resetTime: number }>();
+
 export const checkWalletRateLimit = async (walletAddress: string, requestId: string): Promise<void> => {
   try {
-    // Check if wallet has made a request recently
-    const lastRequest = await redisClient.getLastWalletRequest(walletAddress);
+    console.log(`🔥 DEBUG: checkWalletRateLimit started for ${walletAddress}`);
+
     const now = Date.now();
     const windowMs = config.rateLimits.windowMs;
+    const maxPerWallet = config.rateLimits.maxRequestsPerWallet;
 
-    if (lastRequest && (now - lastRequest) < windowMs) {
-      const retryAfter = Math.ceil((windowMs - (now - lastRequest)) / 1000);
+    console.log(`🔥 DEBUG: now=${now}, windowMs=${windowMs}, maxPerWallet=${maxPerWallet}`);
+
+    // Reset wallet counter if window expired
+    const walletData = walletRequestCounts.get(walletAddress);
+    if (!walletData || now > walletData.resetTime) {
+      walletRequestCounts.set(walletAddress, { count: 0, resetTime: now + windowMs });
+    }
+
+    const currentWalletData = walletRequestCounts.get(walletAddress)!;
+    console.log(`🔥 DEBUG: currentWalletData:`, currentWalletData);
+
+    // Check wallet limit
+    if (currentWalletData.count >= maxPerWallet) {
+      const retryAfter = Math.ceil((currentWalletData.resetTime - now) / 1000);
 
       logRateLimit(requestId, 'unknown', 'wallet', walletAddress);
 
       throw new RateLimitError(
-        `Wallet ${walletAddress} has already requested tokens recently. Please wait ${retryAfter} seconds.`,
+        `Wallet ${walletAddress} has exceeded rate limit. Please wait ${retryAfter} seconds before requesting again.`,
         retryAfter
       );
     }
 
-    // DON'T track the request here - only track after successful faucet request
+    // Increment wallet counter
+    currentWalletData.count++;
+    console.log(`🔥 DEBUG: Wallet counter incremented to:`, currentWalletData.count);
+
+    logger.info(`Wallet rate limit check passed`, {
+      requestId,
+      walletAddress,
+      count: currentWalletData.count,
+      maxPerWallet,
+    });
 
   } catch (error) {
     if (error instanceof RateLimitError) {

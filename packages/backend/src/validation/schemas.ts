@@ -14,11 +14,19 @@ const suiAddressValidator = (value: string, helpers: Joi.CustomHelpers) => {
 
 // Faucet request schema
 export const faucetRequestSchema = Joi.object({
-  walletAddress: Joi.string()
-    .required()
+  // Support both 'address' and 'walletAddress' for backward compatibility
+  address: Joi.string()
+    .optional()
     .custom(suiAddressValidator, 'Sui address validation')
     .messages({
-      'any.required': 'Wallet address is required',
+      'string.empty': 'Address cannot be empty',
+      'any.invalid': 'Invalid Sui wallet address format. Address must be 64 hex characters with optional 0x prefix',
+    }),
+
+  walletAddress: Joi.string()
+    .optional()
+    .custom(suiAddressValidator, 'Sui address validation')
+    .messages({
       'string.empty': 'Wallet address cannot be empty',
       'any.invalid': 'Invalid Sui wallet address format. Address must be 64 hex characters with optional 0x prefix',
     }),
@@ -51,6 +59,8 @@ export const faucetRequestSchema = Joi.object({
       'number.max': `Amount cannot exceed ${Number(config.sui.maxAmount) / 1_000_000_000} SUI`,
       'any.invalid': 'Invalid amount format',
     }),
+}).or('address', 'walletAddress').messages({
+  'object.missing': 'Either "address" or "walletAddress" field is required',
 });
 
 // Query parameters schema for pagination and filtering

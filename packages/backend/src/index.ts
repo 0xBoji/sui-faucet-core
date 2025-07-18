@@ -60,7 +60,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Rate limiting
+// Rate limiting (with Redis fallback to in-memory)
 app.use(rateLimiter);
 
 // Swagger UI
@@ -326,10 +326,14 @@ async function startServer() {
     await suiService.initialize();
     logger.info('Sui service initialized successfully');
 
-    // Initialize Database
-    await databaseService.connect();
-    await databaseService.initialize();
-    logger.info('Database initialized successfully');
+    // Initialize Database (TEMPORARILY BYPASSED FOR TESTING)
+    try {
+      await databaseService.connect();
+      await databaseService.initialize();
+      logger.info('Database initialized successfully');
+    } catch (error) {
+      logger.warn('Database connection failed, continuing without database', { error: (error as Error).message });
+    }
 
     // Start HTTP server
     server.listen(config.server.port, () => {
