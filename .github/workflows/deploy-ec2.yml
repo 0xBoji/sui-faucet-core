@@ -1,0 +1,226 @@
+# Deploy to EC2 Instance
+name: Deploy to EC2
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'terraform/**'
+      - 'docs/**'
+      - '*.md'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        npm ci
+        cd packages/backend && npm ci
+
+    - name: Build application
+      run: |
+        cd packages/backend
+        npm run build
+
+    - name: Create deployment package
+      run: |
+        mkdir -p deploy
+        
+        # Copy built application
+        cp -r packages/backend/dist deploy/
+        cp -r packages/backend/node_modules deploy/
+        cp packages/backend/package*.json deploy/
+        
+        # Copy deployment scripts
+        cp -r scripts deploy/
+        
+        # Create environment file template
+        cat > deploy/.env << EOF
+        # Production Environment Variables
+        NODE_ENV=production
+        PORT=3001
+        
+        # Sui Configuration
+        SUI_NETWORK=testnet
+        SUI_RPC_URL=https://fullnode.testnet.sui.io/
+        SUI_PRIVATE_KEY=${{ secrets.SUI_FAUCET_PRIVATE_KEY }}
+        SUI_DEFAULT_AMOUNT=100000000
+        SUI_MAX_AMOUNT=500000000
+        SUI_MIN_WALLET_BALANCE=600000000
+        
+        # Database Configuration
+        DATABASE_URL=${{ secrets.DATABASE_URL }}
+        DATABASE_SSL=true
+        
+        # Redis Configuration
+        REDIS_URL=${{ secrets.REDIS_URL }}
+        REDIS_KEY_PREFIX=sui-faucet:
+        REDIS_TTL=3600
+        
+        # API Configuration
+        API_KEY=${{ secrets.API_KEY }}
+        
+        # Admin Configuration
+        ADMIN_USERNAME=admin
+        ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
+        
+        # JWT Configuration
+        JWT_SECRET=${{ secrets.JWT_SECRET }}
+        
+        # Rate Limiting
+        RATE_LIMIT_WINDOW_MS=3600000
+        RATE_LIMIT_MAX_REQUESTS=1000
+        RATE_LIMIT_MAX_PER_WALLET=1
+        RATE_LIMIT_MAX_PER_IP=50
+        
+        # Logging
+        LOG_LEVEL=info
+        LOG_FORMAT=json
+        EOF
+        
+        # Create deployment script
+        cat > deploy/deploy.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        echo "🚀 Starting deployment..."
+        
+        # Stop existing application
+        sudo systemctl stop sui-faucet || echo "Service not running"
+        
+        # Backup current deployment
+        if [ -d "/opt/sui-faucet" ]; then
+          sudo cp -r /opt/sui-faucet /opt/sui-faucet.backup.$(date +%Y%m%d_%H%M%S)
+        fi
+        
+        # Create application directory
+        sudo mkdir -p /opt/sui-faucet
+        
+        # Copy new files
+        sudo cp -r * /opt/sui-faucet/
+        sudo chown -R ec2-user:ec2-user /opt/sui-faucet
+        
+        # Install/update Node.js if needed
+        if ! command -v node &> /dev/null || [[ $(node -v) != "v18"* ]]; then
+          echo "📦 Installing Node.js 18..."
+          curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
+          sudo yum install -y nodejs
+        fi
+        
+        # Install PM2 globally if not exists
+        if ! command -v pm2 &> /dev/null; then
+          echo "📦 Installing PM2..."
+          sudo npm install -g pm2
+        fi
+        
+        # Create systemd service
+        sudo tee /etc/systemd/system/sui-faucet.service > /dev/null << 'SERVICE_EOF'
+        [Unit]
+        Description=Sui Faucet API
+        After=network.target
+        
+        [Service]
+        Type=simple
+        User=ec2-user
+        WorkingDirectory=/opt/sui-faucet
+        Environment=NODE_ENV=production
+        EnvironmentFile=/opt/sui-faucet/.env
+        ExecStart=/usr/bin/node dist/index.js
+        Restart=always
+        RestartSec=10
+        StandardOutput=syslog
+        StandardError=syslog
+        SyslogIdentifier=sui-faucet
+        
+        [Install]
+        WantedBy=multi-user.target
+        SERVICE_EOF
+        
+        # Reload systemd and start service
+        sudo systemctl daemon-reload
+        sudo systemctl enable sui-faucet
+        sudo systemctl start sui-faucet
+        
+        # Wait for service to start
+        sleep 5
+        
+        # Check service status
+        if sudo systemctl is-active --quiet sui-faucet; then
+          echo "✅ Deployment successful! Service is running."
+          
+          # Test health endpoint
+          if curl -f http://localhost:3001/api/v1/health; then
+            echo "✅ Health check passed!"
+          else
+            echo "⚠️  Health check failed, but service is running"
+          fi
+        else
+          echo "❌ Deployment failed! Service is not running."
+          sudo systemctl status sui-faucet
+          exit 1
+        fi
+        EOF
+        
+        chmod +x deploy/deploy.sh
+        
+        # Create archive
+        tar -czf deployment.tar.gz -C deploy .
+
+    - name: Upload to EC2
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_PRIVATE_KEY }}
+        source: "deployment.tar.gz"
+        target: "/tmp/"
+
+    - name: Deploy on EC2
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_PRIVATE_KEY }}
+        script: |
+          cd /tmp
+          tar -xzf deployment.tar.gz
+          chmod +x deploy.sh
+          ./deploy.sh
+
+    - name: Health Check
+      run: |
+        sleep 10
+        curl -f http://${{ secrets.EC2_HOST }}:3001/api/v1/health || exit 1
+
+    - name: Notify Success
+      if: success()
+      run: |
+        echo "🎉 Deployment to EC2 successful!"
+        echo "🌐 Application URL: http://${{ secrets.EC2_HOST }}:3001"
+        echo "📊 Health Check: http://${{ secrets.EC2_HOST }}:3001/api/v1/health"
+        echo "📚 API Docs: http://${{ secrets.EC2_HOST }}:3001/docs"
