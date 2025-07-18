@@ -1,0 +1,772 @@
+import { Router, Request, Response } from 'express';
+import { asyncHandler } from '../middleware/errorHandler.js';
+import { validate } from '../validation/schemas.js';
+import { logger } from '../utils/logger.js';
+import { config } from '../config/index.js';
+import { suiService } from '../services/sui.js';
+import { redisClient } from '../services/redis.js';
+import { databaseService } from '../services/database.js';
+import Joi from 'joi';
+
+const router = Router();
+
+// Admin login schema
+const adminLoginSchema = Joi.object({
+  username: Joi.string().required(),
+  password: Joi.string().required(),
+});
+
+// Simple token storage (in production, use Redis or JWT)
+const adminTokens = new Set<string>();
+
+// Generate admin token
+const generateAdminToken = (): string => {
+  return Buffer.from(`admin_${Date.now()}_${Math.random()}`).toString('base64');
+};
+
+// Admin authentication middleware
+const adminAuth = (req: Request, res: Response, next: any) => {
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      success: false,
+      message: '🚫 Admin authentication required. Please login first.',
+      error: {
+        code: 'ADMIN_AUTH_REQUIRED',
+        details: 'Use POST /api/v1/admin/login to get access token',
+      },
+    });
+  }
+
+  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+
+  if (!adminTokens.has(token)) {
+    return res.status(401).json({
+      success: false,
+      message: '🚫 Invalid or expired admin token',
+      error: {
+        code: 'INVALID_ADMIN_TOKEN',
+        details: 'Please login again to get a new token',
+      },
+    });
+  }
+
+  next();
+};
+
+// POST /api/v1/admin/login - Admin login
+router.post('/login',
+  validate(adminLoginSchema, 'body'),
+  asyncHandler(async (req: Request, res: Response) => {
+    const { username, password } = req.body;
+    const requestId = req.requestId;
+    const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+
+    try {
+      // Authenticate admin user from database
+      const adminUser = await databaseService.authenticateAdmin(username, password);
+
+      if (adminUser) {
+        // Generate new admin token
+        const token = generateAdminToken();
+        adminTokens.add(token);
+
+        // Log admin activity
+        await databaseService.saveAdminActivity({
+          admin_username: username,
+          action: 'login',
+          details: 'Admin login successful',
+          ip_address: clientIP,
+          created_at: new Date().toISOString(),
+        });
+
+        logger.info(`✅ Admin login successful`, { requestId, username, role: adminUser.role });
+
+        return res.status(200).json({
+          success: true,
+          message: '🎉 Admin login successful! Welcome to Sui Faucet Admin.',
+          data: {
+            token,
+            expiresIn: '24h',
+            user: {
+              username: adminUser.username,
+              role: adminUser.role,
+              lastLogin: adminUser.last_login,
+            },
+          },
+          timestamp: new Date().toISOString(),
+        });
+      } else {
+        // Log failed login attempt
+        await databaseService.saveAdminActivity({
+          admin_username: username,
+          action: 'login_failed',
+          details: 'Invalid credentials provided',
+          ip_address: clientIP,
+          created_at: new Date().toISOString(),
+        });
+
+        logger.warn(`❌ Admin login failed`, { requestId, username });
+
+        return res.status(401).json({
+          success: false,
+          message: '🚫 Invalid admin credentials',
+          error: {
+            code: 'INVALID_CREDENTIALS',
+            details: 'Please check your username and password',
+          },
+        });
+      }
+    } catch (error: any) {
+      logger.error('Admin login error', { error: error.message, requestId, username });
+
+      return res.status(500).json({
+        success: false,
+        message: '❌ Login failed due to server error',
+        error: { code: 'SERVER_ERROR' },
+      });
+    }
+  })
+);
+
+// POST /api/v1/admin/logout - Admin logout
+router.post('/logout',
+  adminAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.substring(7); // Remove 'Bearer ' prefix
+    const requestId = req.requestId;
+    const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+
+    if (token) {
+      adminTokens.delete(token);
+
+      // Log admin activity
+      try {
+        await databaseService.saveAdminActivity({
+          admin_username: 'admin', // We could store username in token for better tracking
+          action: 'logout',
+          details: 'Admin logout successful',
+          ip_address: clientIP,
+          created_at: new Date().toISOString(),
+        });
+      } catch (error: any) {
+        logger.error('Failed to log admin logout activity', { error: error.message });
+      }
+
+      logger.info(`✅ Admin logout successful`, { requestId });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: '👋 Admin logout successful',
+      timestamp: new Date().toISOString(),
+    });
+  })
+);
+
+// GET /api/v1/admin/me - Get current admin info
+router.get('/me',
+  adminAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const requestId = req.requestId;
+
+    try {
+      // Get admin user from database
+      const adminUser = await databaseService.getAdminUser(config.auth.adminUsername);
+
+      if (!adminUser) {
+        return res.status(404).json({
+          success: false,
+          message: '🚫 Admin user not found',
+          error: { code: 'USER_NOT_FOUND' },
+        });
+      }
+
+      logger.info(`Admin info requested`, { requestId, username: adminUser.username });
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          user: {
+            username: adminUser.username,
+            role: adminUser.role,
+            email: adminUser.email,
+            lastLogin: adminUser.last_login,
+            createdAt: adminUser.created_at,
+          },
+          permissions: [
+            'view_dashboard',
+            'view_health',
+            'clear_cache',
+            'view_logs',
+            'view_transactions',
+            'view_activities',
+            ...(adminUser.role === 'super_admin' ? ['manage_users', 'system_config'] : []),
+          ],
+        },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      logger.error('Failed to get admin info', { error: error.message, requestId });
+
+      return res.status(500).json({
+        success: false,
+        message: '❌ Failed to get admin info',
+        error: { code: 'SERVER_ERROR' },
+      });
+    }
+  })
+);
+
+// GET /api/v1/admin/dashboard - Admin dashboard data
+router.get('/dashboard', 
+  adminAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const requestId = req.requestId;
+    
+    try {
+      // Get system stats
+      const [
+        walletBalance,
+        totalRequests,
+        successfulRequests,
+        failedRequests,
+        dbStats,
+      ] = await Promise.all([
+        suiService.getWalletBalance(),
+        redisClient.getMetric('requests_total'),
+        redisClient.getMetric('requests_success'),
+        redisClient.getMetric('requests_failed'),
+        databaseService.getTransactionStats(),
+      ]);
+
+      const successRate = totalRequests > 0 ? (successfulRequests / totalRequests * 100).toFixed(2) : '0';
+      
+      logger.info(`Admin dashboard accessed`, { requestId });
+      
+      return res.status(200).json({
+        success: true,
+        data: {
+          system: {
+            status: 'operational',
+            uptime: process.uptime(),
+            timestamp: new Date().toISOString(),
+          },
+          faucet: {
+            walletAddress: suiService.faucetAddress,
+            balance: {
+              mist: walletBalance.toString(),
+              sui: (Number(walletBalance) / 1_000_000_000).toFixed(6),
+            },
+            network: config.sui.network,
+            rpcUrl: config.sui.rpcUrl,
+          },
+          stats: {
+            // Redis metrics (real-time)
+            redis: {
+              totalRequests: totalRequests || 0,
+              successfulRequests: successfulRequests || 0,
+              failedRequests: failedRequests || 0,
+              successRate: `${successRate}%`,
+            },
+            // Database metrics (persistent)
+            database: {
+              totalTransactions: dbStats.total,
+              successfulTransactions: dbStats.successful,
+              failedTransactions: dbStats.failed,
+              totalAmountDistributed: {
+                mist: dbStats.totalAmount,
+                sui: (Number(dbStats.totalAmount) / 1_000_000_000).toFixed(6),
+              },
+              successRate: dbStats.total > 0 ? `${(dbStats.successful / dbStats.total * 100).toFixed(2)}%` : '0%',
+            },
+          },
+          config: {
+            defaultAmount: {
+              mist: config.sui.defaultAmount,
+              sui: (Number(config.sui.defaultAmount) / 1_000_000_000).toFixed(1),
+            },
+            maxAmount: {
+              mist: config.sui.maxAmount,
+              sui: (Number(config.sui.maxAmount) / 1_000_000_000).toFixed(1),
+            },
+            rateLimits: {
+              windowMs: config.rateLimits.windowMs,
+              maxPerWallet: config.rateLimits.maxRequestsPerWallet,
+              maxPerIP: config.rateLimits.maxRequestsPerIP,
+            },
+          },
+        },
+      });
+      
+    } catch (error: any) {
+      logger.error('Admin dashboard error', { error: error.message, requestId });
+      
+      return res.status(500).json({
+        success: false,
+        message: '❌ Failed to load dashboard data',
+        error: { code: 'DASHBOARD_ERROR', details: error.message },
+      });
+    }
+  })
+);
+
+// GET /api/v1/admin/health - Detailed health check for admin
+router.get('/health',
+  adminAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const requestId = req.requestId;
+    
+    try {
+      // Check all services
+      const suiHealth = await suiService.healthCheck();
+      const redisHealth = await redisClient.healthCheck();
+      
+      const overallStatus = suiHealth.status === 'healthy' && redisHealth.status === 'healthy' 
+        ? 'healthy' : 'unhealthy';
+      
+      logger.info(`Admin health check`, { requestId, status: overallStatus });
+      
+      return res.status(200).json({
+        success: true,
+        data: {
+          status: overallStatus,
+          timestamp: new Date().toISOString(),
+          services: {
+            sui: suiHealth,
+            redis: redisHealth,
+          },
+          system: {
+            uptime: process.uptime(),
+            memory: process.memoryUsage(),
+            nodeVersion: process.version,
+          },
+        },
+      });
+      
+    } catch (error: any) {
+      logger.error('Admin health check error', { error: error.message, requestId });
+      
+      return res.status(500).json({
+        success: false,
+        message: '❌ Health check failed',
+        error: { code: 'HEALTH_CHECK_ERROR', details: error.message },
+      });
+    }
+  })
+);
+
+// POST /api/v1/admin/clear-cache - Clear Redis cache
+router.post('/clear-cache',
+  adminAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const requestId = req.requestId;
+    
+    try {
+      await redisClient.clearAll();
+      
+      logger.info(`✅ Admin cleared cache`, { requestId });
+      
+      return res.status(200).json({
+        success: true,
+        message: '✅ Cache cleared successfully',
+        timestamp: new Date().toISOString(),
+      });
+      
+    } catch (error: any) {
+      logger.error('Admin clear cache error', { error: error.message, requestId });
+      
+      return res.status(500).json({
+        success: false,
+        message: '❌ Failed to clear cache',
+        error: { code: 'CLEAR_CACHE_ERROR', details: error.message },
+      });
+    }
+  })
+);
+
+// GET /api/v1/admin/transactions - Get recent transactions
+router.get('/transactions',
+  adminAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const requestId = req.requestId;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    try {
+      const transactions = await databaseService.getTransactions(limit, offset);
+
+      logger.info(`Admin transactions viewed`, { requestId, limit, offset });
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          transactions,
+          pagination: {
+            limit,
+            offset,
+            total: transactions.length,
+          },
+        },
+        timestamp: new Date().toISOString(),
+      });
+
+    } catch (error: any) {
+      logger.error('Failed to get transactions', {
+        error: error.message,
+        requestId,
+      });
+
+      res.status(500).json({
+        success: false,
+        message: '❌ Failed to retrieve transactions',
+        error: { code: 'DATABASE_ERROR' },
+      });
+    }
+  })
+);
+
+// GET /api/v1/admin/activities - Get admin activities
+router.get('/activities',
+  adminAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const requestId = req.requestId;
+    const limit = parseInt(req.query.limit as string) || 50;
+
+    try {
+      const activities = await databaseService.getAdminActivities(limit);
+
+      logger.info(`Admin activities viewed`, { requestId, limit });
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          activities,
+          total: activities.length,
+        },
+        timestamp: new Date().toISOString(),
+      });
+
+    } catch (error: any) {
+      logger.error('Failed to get admin activities', {
+        error: error.message,
+        requestId,
+      });
+
+      res.status(500).json({
+        success: false,
+        message: '❌ Failed to retrieve admin activities',
+        error: { code: 'DATABASE_ERROR' },
+      });
+    }
+  })
+);
+
+// GET /api/v1/admin/faucet - Get faucet wallet information
+router.get('/faucet',
+  adminAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const requestId = req.requestId;
+
+    try {
+      // Get faucet wallet balance
+      const balance = await suiService.getWalletBalance();
+
+      // Log admin activity
+      await databaseService.saveAdminActivity({
+        admin_username: 'admin', // Could be extracted from token
+        action: 'view_faucet_info',
+        details: 'Viewed faucet wallet information',
+        ip_address: req.ip || req.connection.remoteAddress || 'unknown',
+        created_at: new Date().toISOString(),
+      });
+
+      logger.info(`Admin viewed faucet info`, { requestId });
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          wallet: {
+            address: suiService.faucetAddress,
+            balance: {
+              mist: balance.toString(),
+              sui: (Number(balance) / 1_000_000_000).toFixed(6),
+            },
+            network: config.sui.network,
+            rpcUrl: config.sui.rpcUrl,
+          },
+          config: {
+            defaultAmount: {
+              mist: config.sui.defaultAmount,
+              sui: (Number(config.sui.defaultAmount) / 1_000_000_000).toFixed(1),
+            },
+            maxAmount: {
+              mist: config.sui.maxAmount,
+              sui: (Number(config.sui.maxAmount) / 1_000_000_000).toFixed(1),
+            },
+          },
+          status: {
+            isActive: Number(balance) > Number(config.sui.defaultAmount),
+            lowBalanceWarning: Number(balance) < Number(config.sui.defaultAmount) * 10,
+            minimumBalance: {
+              mist: (Number(config.sui.defaultAmount) * 10).toString(),
+              sui: (Number(config.sui.defaultAmount) * 10 / 1_000_000_000).toFixed(1),
+            },
+          },
+        },
+        timestamp: new Date().toISOString(),
+      });
+
+    } catch (error: any) {
+      logger.error('Failed to get faucet info', {
+        error: error.message,
+        requestId,
+      });
+
+      res.status(500).json({
+        success: false,
+        message: '❌ Failed to retrieve faucet information',
+        error: { code: 'SERVER_ERROR' },
+      });
+    }
+  })
+);
+
+// GET /api/v1/admin/faucet/balance - Get real-time faucet balance
+router.get('/faucet/balance',
+  adminAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const requestId = req.requestId;
+
+    try {
+      const balance = await suiService.getWalletBalance();
+
+      logger.info(`Admin checked faucet balance`, { requestId, balance: balance.toString() });
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          address: suiService.faucetAddress,
+          balance: {
+            mist: balance.toString(),
+            sui: (Number(balance) / 1_000_000_000).toFixed(6),
+          },
+          network: config.sui.network,
+          timestamp: new Date().toISOString(),
+        },
+      });
+
+    } catch (error: any) {
+      logger.error('Failed to get faucet balance', {
+        error: error.message,
+        requestId,
+      });
+
+      res.status(500).json({
+        success: false,
+        message: '❌ Failed to retrieve faucet balance',
+        error: { code: 'SERVER_ERROR' },
+      });
+    }
+  })
+);
+
+// GET /api/v1/admin/faucet/stats - Get faucet usage statistics
+router.get('/faucet/stats',
+  adminAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const requestId = req.requestId;
+    const days = parseInt(req.query.days as string) || 7;
+
+    try {
+      // Get database stats
+      const dbStats = await databaseService.getTransactionStats();
+
+      // Get recent transactions for trend analysis
+      const recentTransactions = await databaseService.getTransactions(100, 0);
+
+      // Calculate daily distribution
+      const now = new Date();
+      const dailyStats = [];
+
+      for (let i = days - 1; i >= 0; i--) {
+        const date = new Date(now);
+        date.setDate(date.getDate() - i);
+        date.setHours(0, 0, 0, 0);
+
+        const nextDate = new Date(date);
+        nextDate.setDate(nextDate.getDate() + 1);
+
+        const dayTransactions = recentTransactions.filter(tx => {
+          const txDate = new Date(tx.created_at);
+          return txDate >= date && txDate < nextDate;
+        });
+
+        const dayAmount = dayTransactions.reduce((sum, tx) =>
+          sum + (tx.status === 'success' ? Number(tx.amount) : 0), 0
+        );
+
+        dailyStats.push({
+          date: date.toISOString().split('T')[0],
+          transactions: dayTransactions.length,
+          successfulTransactions: dayTransactions.filter(tx => tx.status === 'success').length,
+          totalAmount: {
+            mist: dayAmount.toString(),
+            sui: (dayAmount / 1_000_000_000).toFixed(6),
+          },
+        });
+      }
+
+      logger.info(`Admin viewed faucet stats`, { requestId, days });
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          overview: {
+            totalTransactions: dbStats.total,
+            successfulTransactions: dbStats.successful,
+            failedTransactions: dbStats.failed,
+            totalDistributed: {
+              mist: dbStats.totalAmount,
+              sui: (Number(dbStats.totalAmount) / 1_000_000_000).toFixed(6),
+            },
+            successRate: dbStats.total > 0 ? `${(dbStats.successful / dbStats.total * 100).toFixed(2)}%` : '0%',
+          },
+          dailyStats,
+          period: {
+            days,
+            from: dailyStats[0]?.date,
+            to: dailyStats[dailyStats.length - 1]?.date,
+          },
+        },
+        timestamp: new Date().toISOString(),
+      });
+
+    } catch (error: any) {
+      logger.error('Failed to get faucet stats', {
+        error: error.message,
+        requestId,
+      });
+
+      res.status(500).json({
+        success: false,
+        message: '❌ Failed to retrieve faucet statistics',
+        error: { code: 'SERVER_ERROR' },
+      });
+    }
+  })
+);
+
+// POST /api/v1/admin/faucet/test - Test faucet transaction (admin only)
+router.post('/faucet/test',
+  adminAuth,
+  asyncHandler(async (req: Request, res: Response) => {
+    const requestId = req.requestId;
+    const { walletAddress, amount } = req.body;
+    const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+
+    try {
+      // Validate wallet address
+      if (!walletAddress || typeof walletAddress !== 'string') {
+        return res.status(400).json({
+          success: false,
+          message: '❌ Valid wallet address is required',
+          error: { code: 'INVALID_WALLET_ADDRESS' },
+        });
+      }
+
+      // Validate amount (optional, use default if not provided)
+      const testAmount = amount ? amount.toString() : config.sui.defaultAmount;
+
+      if (Number(testAmount) <= 0 || Number(testAmount) > Number(config.sui.maxAmount)) {
+        return res.status(400).json({
+          success: false,
+          message: `❌ Amount must be between 0 and ${Number(config.sui.maxAmount) / 1_000_000_000} SUI`,
+          error: { code: 'INVALID_AMOUNT' },
+        });
+      }
+
+      // Execute test transaction
+      const result = await suiService.sendTokens(walletAddress, testAmount);
+
+      // Save to database
+      await databaseService.saveTransaction({
+        request_id: requestId,
+        wallet_address: walletAddress,
+        amount: testAmount,
+        transaction_hash: result.digest,
+        status: 'success',
+        ip_address: clientIP,
+        user_agent: req.get('User-Agent') || 'unknown',
+        created_at: new Date().toISOString(),
+      });
+
+      // Log admin activity
+      await databaseService.saveAdminActivity({
+        admin_username: 'admin',
+        action: 'test_transaction',
+        details: `Test transaction sent: ${Number(testAmount) / 1_000_000_000} SUI to ${walletAddress}`,
+        ip_address: clientIP,
+        created_at: new Date().toISOString(),
+      });
+
+      logger.info(`Admin test transaction successful`, {
+        requestId,
+        walletAddress,
+        amount: testAmount,
+        transactionHash: result.digest
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: '🎉 Test transaction successful!',
+        data: {
+          transactionHash: result.digest,
+          amount: {
+            mist: testAmount,
+            sui: (Number(testAmount) / 1_000_000_000).toFixed(6),
+          },
+          walletAddress,
+          network: config.sui.network,
+          explorerUrl: result.digest ? `https://suiscan.xyz/testnet/tx/${result.digest}` : null,
+        },
+        timestamp: new Date().toISOString(),
+      });
+
+    } catch (error: any) {
+      // Save failed transaction
+      if (walletAddress) {
+        await databaseService.saveTransaction({
+          request_id: requestId,
+          wallet_address: walletAddress,
+          amount: amount?.toString() || config.sui.defaultAmount,
+          transaction_hash: '',
+          status: 'failed',
+          error_message: error.message,
+          ip_address: clientIP,
+          user_agent: req.get('User-Agent') || 'unknown',
+          created_at: new Date().toISOString(),
+        });
+      }
+
+      logger.error('Admin test transaction failed', {
+        error: error.message,
+        requestId,
+        walletAddress,
+      });
+
+      res.status(500).json({
+        success: false,
+        message: '❌ Test transaction failed',
+        error: {
+          code: 'TRANSACTION_FAILED',
+          details: error.message,
+        },
+      });
+    }
+  })
+);
+
+export { router as adminRoutes };

@@ -1,0 +1,26 @@
+{
+  "name": "sui-testnet-faucet",
+  "version": "1.0.0",
+  "description": "A user-friendly Sui Testnet Faucet DApp with web frontend, backend API, and Discord bot integration",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev": "npm run dev --workspaces",
+    "start": "npm run start --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "clean": "npm run clean --workspaces && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "tsx": "^4.0.0",
+    "nodemon": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "@sui-faucet/discord-bot",
+  "version": "1.0.0",
+  "description": "Discord bot for Sui Testnet Faucet",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src --ext .ts",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "@discordjs/builders": "^1.7.0",
+    "@discordjs/rest": "^2.2.0",
+    "discord-api-types": "^0.37.61",
+    "dotenv": "^16.3.0",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "vitest": "^1.0.0",
+    "eslint": "^8.55.0",
+    "@typescript-eslint/eslint-plugin": "^6.14.0",
+    "@typescript-eslint/parser": "^6.14.0"
+  }
+}
