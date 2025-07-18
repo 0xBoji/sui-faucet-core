@@ -81,7 +81,6 @@ API key for faucet requests authentication.
 
 **Example:**
 ```
-suisuisui
 ```
 
 #### `ADMIN_USERNAME`

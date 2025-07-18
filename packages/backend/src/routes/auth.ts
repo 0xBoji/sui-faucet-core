@@ -25,7 +25,7 @@ const router = Router();
  *             properties:
  *               apiKey:
  *                 type: string
- *                 example: "suisuisui"
+ *                 example: ""
  *                 description: "API key to verify"
  *     responses:
  *       200:
@@ -214,11 +214,11 @@ router.get('/key',
       success: true,
       message: '🔑 API Key Information',
       info: {
-        description: 'Use the API key "suisuisui" to authenticate faucet requests',
+        description: 'Use the API key "" to authenticate faucet requests',
         usage: {
-          header: 'Authorization: Bearer suisuisui',
-          example: 'curl -H "Authorization: Bearer suisuisui" -X POST /api/v1/faucet/request',
-          verification: 'POST /api/v1/auth/verify with {"apiKey": "suisuisui"}',
+          header: 'Authorization: Bearer ',
+          example: 'curl -H "Authorization: Bearer " -X POST /api/v1/faucet/request',
+          verification: 'POST /api/v1/auth/verify with {"apiKey": ""}',
         },
         validKey: config.auth.apiKey,
         protectedEndpoints: ['/api/v1/faucet/request'],

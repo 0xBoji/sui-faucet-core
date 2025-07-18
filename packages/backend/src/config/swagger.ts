@@ -83,7 +83,7 @@ All responses follow this format:
           type: 'http',
           scheme: 'bearer',
           bearerFormat: 'API_KEY',
-          description: 'Enter your API key (e.g., "suisuisui")'
+          description: 'Enter your API key)'
         },
         AdminAuth: {
           type: 'http',

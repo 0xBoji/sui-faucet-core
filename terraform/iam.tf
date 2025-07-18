@@ -113,7 +113,7 @@ resource "aws_secretsmanager_secret_version" "app_secrets" {
   secret_id = aws_secretsmanager_secret.app_secrets.id
   secret_string = jsonencode({
     sui_faucet_private_key = "your-sui-private-key-here"
-    api_key               = "suisuisui"
+    api_key               = ""
     jwt_secret            = "your-jwt-secret-key-here"
     admin_username        = "admin"
     admin_password        = "your-admin-password-here"

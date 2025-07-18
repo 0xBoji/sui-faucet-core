@@ -32,7 +32,7 @@ const router = Router();
  *                 example: "admin"
  *               password:
  *                 type: string
- *                 example: "adminsuisuisui"
+ *                 example: ""
  *     responses:
  *       200:
  *         description: Login successful

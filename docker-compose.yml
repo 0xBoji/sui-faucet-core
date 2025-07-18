@@ -16,7 +16,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - SUI_NETWORK=testnet
       - SUI_FAUCET_PRIVATE_KEY=${SUI_FAUCET_PRIVATE_KEY}
-      - API_KEY=${API_KEY:-suisuisui}
+      - API_KEY=${API_KEY:-}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
       - JWT_SECRET=${JWT_SECRET:-your-jwt-secret-key}
