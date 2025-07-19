@@ -253,6 +253,101 @@ class DatabaseService {
     };
   }
 
+  // NEW: Save metrics (aggregated data, privacy-friendly)
+  async saveMetrics(data: {
+    date: string;
+    amount: string;
+    status: 'success' | 'failed';
+    transaction_hash?: string;
+    error_type?: string;
+  }): Promise<void> {
+    try {
+      // Update daily metrics
+      await this.updateDailyMetrics(data);
+
+      // Save recent transaction hash for debugging (if success)
+      if (data.status === 'success' && data.transaction_hash) {
+        await this.saveRecentTransaction(data.transaction_hash, data.amount);
+      }
+
+      logger.debug('Metrics saved to database', {
+        date: data.date,
+        status: data.status,
+        amount: data.amount
+      });
+    } catch (error: any) {
+      logger.error('Failed to save metrics', {
+        error: error.message,
+        date: data.date
+      });
+      throw error;
+    }
+  }
+
+  // Update daily aggregated metrics
+  private async updateDailyMetrics(data: {
+    date: string;
+    amount: string;
+    status: 'success' | 'failed';
+    error_type?: string;
+  }): Promise<void> {
+    const query = `
+      INSERT INTO faucet_metrics (
+        date, total_requests, successful_requests, failed_requests,
+        total_amount_distributed, rate_limit_errors, network_errors
+      ) VALUES ($1, 1, $2, $3, $4, $5, $6)
+      ON CONFLICT (date) DO UPDATE SET
+        total_requests = faucet_metrics.total_requests + 1,
+        successful_requests = faucet_metrics.successful_requests + $2,
+        failed_requests = faucet_metrics.failed_requests + $3,
+        total_amount_distributed = faucet_metrics.total_amount_distributed + $4,
+        rate_limit_errors = faucet_metrics.rate_limit_errors + $5,
+        network_errors = faucet_metrics.network_errors + $6,
+        updated_at = NOW()
+    `;
+
+    const successCount = data.status === 'success' ? 1 : 0;
+    const failedCount = data.status === 'failed' ? 1 : 0;
+    const amount = data.status === 'success' ? BigInt(data.amount) : 0n;
+    const rateLimitError = data.error_type === 'rate_limit' ? 1 : 0;
+    const networkError = data.error_type === 'network_error' ? 1 : 0;
+
+    await this.query(query, [
+      data.date,
+      successCount,
+      failedCount,
+      amount.toString(),
+      rateLimitError,
+      networkError
+    ]);
+  }
+
+  // Save recent transaction for debugging (auto-expire after 7 days)
+  private async saveRecentTransaction(transactionHash: string, amount: string): Promise<void> {
+    try {
+      const query = `
+        INSERT INTO recent_transactions (transaction_hash, amount)
+        VALUES ($1, $2)
+        ON CONFLICT (transaction_hash) DO NOTHING
+      `;
+
+      await this.query(query, [transactionHash, amount]);
+
+      // Clean up old transactions (older than 7 days)
+      const cleanupQuery = `
+        DELETE FROM recent_transactions
+        WHERE created_at < NOW() - INTERVAL '7 days'
+      `;
+
+      await this.query(cleanupQuery);
+    } catch (error: any) {
+      logger.warn('Failed to save recent transaction', {
+        error: error.message,
+        transactionHash
+      });
+    }
+  }
+
   // Request log methods
   async saveRequestLog(log: RequestLog): Promise<number> {
     const result = await this.query(`
@@ -456,6 +551,26 @@ class DatabaseService {
       logger.error('Failed to update admin password', { error: error.message, username });
       throw error;
     }
+  }
+
+  // Get faucet metrics
+  async getFaucetMetrics(days: number = 7): Promise<any[]> {
+    const result = await this.query(`
+      SELECT * FROM faucet_metrics
+      WHERE date >= CURRENT_DATE - INTERVAL '${days} days'
+      ORDER BY date DESC
+    `);
+    return result.rows;
+  }
+
+  // Get recent transactions
+  async getRecentTransactions(limit: number = 10): Promise<any[]> {
+    const result = await this.query(`
+      SELECT * FROM recent_transactions
+      ORDER BY created_at DESC
+      LIMIT $1
+    `, [limit]);
+    return result.rows;
   }
 }
 

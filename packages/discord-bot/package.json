@@ -6,26 +6,29 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
+    "deploy-commands": "tsx src/deploy-commands.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint src --ext .ts",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "discord.js": "^14.14.1",
     "@discordjs/builders": "^1.7.0",
     "@discordjs/rest": "^2.2.0",
+    "axios": "^1.10.0",
     "discord-api-types": "^0.37.61",
+    "discord.js": "^14.14.1",
     "dotenv": "^16.3.0",
+    "node-cron": "^4.2.1",
     "winston": "^3.11.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "vitest": "^1.0.0",
-    "eslint": "^8.55.0",
     "@typescript-eslint/eslint-plugin": "^6.14.0",
-    "@typescript-eslint/parser": "^6.14.0"
+    "@typescript-eslint/parser": "^6.14.0",
+    "eslint": "^8.55.0",
+    "vitest": "^1.0.0"
   }
 }

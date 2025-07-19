@@ -53,3 +53,100 @@ terraform.tfplan.*
 terraform/bootstrap/.terraform/
 terraform/bootstrap/terraform.tfstate*
 terraform/bootstrap/terraform.tfplan*
+
+# ================================
+# 🔒 SENSITIVE DATA & SECRETS
+# ================================
+
+# Environment files with secrets
+!.env.example
+!.env.template
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+
+# Database files and backups
+*.db
+*.sqlite
+*.sqlite3
+*.sql.backup
+dump.sql
+backup.sql
+
+# Configuration files with secrets
+config.json
+config.yaml
+config.yml
+secrets.json
+credentials.json
+
+# SSH keys
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+known_hosts
+
+# AWS credentials
+.aws/
+aws-credentials.json
+
+# Docker secrets
+docker-compose.override.yml
+docker-compose.prod.yml
+.docker/
+
+# ================================
+# 🚨 PROJECT SPECIFIC SECRETS
+# ================================
+
+# Sui private keys and mnemonics
+*.sui-key
+mnemonic.txt
+wallet.json
+keystore.json
+
+# API keys and tokens
+api-keys.txt
+tokens.json
+discord-token.txt
+
+# Database connection strings
+database-url.txt
+connection-string.txt
+
+# Backup files
+*.backup
+*.bak
+*.old
+
+# Log files with sensitive data
+*.log
+audit.log
+security.log
+access.log
+logs/
+
+# Generated documentation with internal info
+docs/internal/
+docs/private/
+
+# Local development overrides
+docker-compose.local.yml
+.env.local.override
+
+# Test files with sensitive data
+test-data/
+fixtures/
+*.test.env
+
+# Temporary files
+tmp/
+temp/
+*.tmp

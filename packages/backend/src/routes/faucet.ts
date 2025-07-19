@@ -259,20 +259,16 @@ router.post('/request',
           result.transactionHash
         );
 
-        // Save transaction to database
+        // Save minimal metrics only (no sensitive data)
         try {
-          await databaseService.saveTransaction({
-            request_id: requestId,
-            wallet_address: validAddress,
+          await databaseService.saveMetrics({
+            date: new Date().toISOString().split('T')[0]!, // YYYY-MM-DD
             amount: amountToSend.toString(),
-            transaction_hash: result.transactionHash,
             status: 'success',
-            ip_address: clientIP,
-            user_agent: req.get('User-Agent') || 'unknown',
-            created_at: new Date().toISOString(),
+            ...(result.transactionHash && { transaction_hash: result.transactionHash }), // For debugging only
           });
         } catch (dbError: any) {
-          logger.error('Failed to save transaction to database', {
+          logger.error('Failed to save metrics to database', {
             requestId,
             error: dbError.message,
           });
@@ -313,21 +309,16 @@ router.post('/request',
           result.error
         );
 
-        // Save failed transaction to database
+        // Save failed metrics
         try {
-          await databaseService.saveTransaction({
-            request_id: requestId,
-            wallet_address: validAddress,
+          await databaseService.saveMetrics({
+            date: new Date().toISOString().split('T')[0]!,
             amount: amountToSend.toString(),
-            transaction_hash: 'failed',
             status: 'failed',
-            error_message: result.error || 'Unknown error',
-            ip_address: clientIP,
-            user_agent: req.get('User-Agent') || 'unknown',
-            created_at: new Date().toISOString(),
+            error_type: 'network_error',
           });
         } catch (dbError: any) {
-          logger.error('Failed to save failed transaction to database', {
+          logger.error('Failed to save failed metrics', {
             requestId,
             error: dbError.message,
           });
@@ -362,6 +353,21 @@ router.post('/request',
 
       // Handle rate limit errors
       if (error.name === 'RateLimitError') {
+        // Save rate limit metrics
+        try {
+          await databaseService.saveMetrics({
+            date: new Date().toISOString().split('T')[0]!,
+            amount: (amount || config.sui.defaultAmount).toString(),
+            status: 'failed',
+            error_type: 'rate_limit',
+          });
+        } catch (dbError: any) {
+          logger.error('Failed to save rate limit metrics', {
+            requestId,
+            error: dbError.message,
+          });
+        }
+
         return res.status(429).json({
           success: false,
           message: `🚫 ${error.message}`,
