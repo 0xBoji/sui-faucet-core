@@ -1,9 +1,4 @@
 import swaggerJsdoc from 'swagger-jsdoc';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const options: swaggerJsdoc.Options = {
   definition: {
@@ -200,12 +195,15 @@ All responses follow this format:
       }
     ]
   },
-  apis: [
-    path.join(__dirname, '../routes/*.ts'),
-    path.join(__dirname, '../index.ts'),
-    path.join(__dirname, '../../dist/routes/*.js'),
-    path.join(__dirname, '../../dist/index.js')
-  ]
+  apis: process.env.NODE_ENV === 'production'
+    ? [
+        './dist/routes/*.js',
+        './dist/index.js'
+      ]
+    : [
+        './src/routes/*.ts',
+        './src/index.ts'
+      ]
 };
 
 export const swaggerSpec = swaggerJsdoc(options);
