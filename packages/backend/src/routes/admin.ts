@@ -1086,14 +1086,14 @@ router.post('/faucet/test',
       }
 
       // Execute test transaction
-      const result = await suiService.sendTokens(walletAddress, testAmount);
+      const result = await suiService.sendTokens(walletAddress, testAmount, requestId);
 
       // Save to database
       await databaseService.saveTransaction({
-        request_id: requestId,
+        request_id: requestId || 'admin-test',
         wallet_address: walletAddress,
         amount: testAmount,
-        transaction_hash: result.digest,
+        transaction_hash: result.transactionHash || '',
         status: 'success',
         ip_address: clientIP,
         user_agent: req.get('User-Agent') || 'unknown',
@@ -1113,21 +1113,21 @@ router.post('/faucet/test',
         requestId,
         walletAddress,
         amount: testAmount,
-        transactionHash: result.digest
+        transactionHash: result.transactionHash
       });
 
       return res.status(200).json({
         success: true,
         message: '🎉 Test transaction successful!',
         data: {
-          transactionHash: result.digest,
+          transactionHash: result.transactionHash,
           amount: {
             mist: testAmount,
             sui: (Number(testAmount) / 1_000_000_000).toFixed(6),
           },
           walletAddress,
           network: config.sui.network,
-          explorerUrl: result.digest ? `https://suiscan.xyz/testnet/tx/${result.digest}` : null,
+          explorerUrl: result.transactionHash ? `https://suiscan.xyz/testnet/tx/${result.transactionHash}` : null,
         },
         timestamp: new Date().toISOString(),
       });
@@ -1136,7 +1136,7 @@ router.post('/faucet/test',
       // Save failed transaction
       if (walletAddress) {
         await databaseService.saveTransaction({
-          request_id: requestId,
+          request_id: requestId || 'admin-test-failed',
           wallet_address: walletAddress,
           amount: amount?.toString() || config.sui.defaultAmount,
           transaction_hash: '',
