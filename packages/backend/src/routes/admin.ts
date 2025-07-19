@@ -7,6 +7,9 @@ import { suiService } from '../services/sui.js';
 import { redisClient } from '../services/redis.js';
 import { databaseService } from '../services/database.js';
 import Joi from 'joi';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 
 const router = Router();
 
@@ -165,12 +168,45 @@ const adminLoginSchema = Joi.object({
   password: Joi.string().required(),
 });
 
-// Simple token storage (in production, use Redis or JWT)
-const adminTokens = new Set<string>();
+// JWT Configuration
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
+const JWT_EXPIRES_IN = '24h';
 
-// Generate admin token
-const generateAdminToken = (): string => {
-  return Buffer.from(`admin_${Date.now()}_${Math.random()}`).toString('base64');
+// Blacklisted tokens (for logout/revocation)
+const blacklistedTokens = new Set<string>();
+
+// Generate secure admin JWT token
+const generateAdminToken = (user: any): string => {
+  return jwt.sign(
+    {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      iat: Math.floor(Date.now() / 1000),
+    },
+    JWT_SECRET,
+    {
+      expiresIn: JWT_EXPIRES_IN,
+      issuer: 'sui-faucet-admin',
+      audience: 'sui-faucet-api'
+    }
+  );
+};
+
+// Verify JWT token
+const verifyAdminToken = (token: string): any => {
+  try {
+    if (blacklistedTokens.has(token)) {
+      throw new Error('Token has been revoked');
+    }
+
+    return jwt.verify(token, JWT_SECRET, {
+      issuer: 'sui-faucet-admin',
+      audience: 'sui-faucet-api'
+    });
+  } catch (error) {
+    throw new Error('Invalid or expired token');
+  }
 };
 
 // Admin authentication middleware
