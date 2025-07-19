@@ -131,13 +131,26 @@ async function handleStats(interaction: ChatInputCommandInteraction) {
     .setTimestamp();
 
   // Faucet stats
-  if (faucetStatus) {
+  if (faucetStatus && faucetStatus.success) {
+    const balance = faucetStatus.balanceInSui || 0;
+    const network = faucetStatus.network || 'unknown';
+    const defaultAmount = faucetStatus.defaultAmountInSui || 0;
+
     statsEmbed.addFields(
       {
         name: '🚰 Faucet Information',
-        value: `**Balance:** ${faucetStatus.balanceInSui.toFixed(4)} SUI\n` +
-               `**Network:** ${faucetStatus.network.toUpperCase()}\n` +
-               `**Default Amount:** ${faucetStatus.defaultAmountInSui} SUI\n` +
+        value: `**Balance:** ${balance.toFixed(4)} SUI\n` +
+               `**Network:** ${network.toUpperCase()}\n` +
+               `**Default Amount:** ${defaultAmount} SUI\n` +
+               `**Health:** ${isHealthy ? '🟢 Healthy' : '🔴 Unhealthy'}`,
+        inline: true,
+      }
+    );
+  } else {
+    statsEmbed.addFields(
+      {
+        name: '🚰 Faucet Information',
+        value: `**Status:** ❌ Unable to fetch faucet data\n` +
                `**Health:** ${isHealthy ? '🟢 Healthy' : '🔴 Unhealthy'}`,
         inline: true,
       }
