@@ -1,4 +1,9 @@
 import swaggerJsdoc from 'swagger-jsdoc';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const options: swaggerJsdoc.Options = {
   definition: {
@@ -72,7 +77,7 @@ All responses follow this format:
         description: 'Development server'
       },
       {
-        url: 'https://api.suifaucet.com',
+        url: 'http://13.211.123.118',
         description: 'Production server'
       }
     ],
@@ -196,8 +201,10 @@ All responses follow this format:
     ]
   },
   apis: [
-    './src/routes/*.ts',
-    './src/index.ts'
+    path.join(__dirname, '../routes/*.ts'),
+    path.join(__dirname, '../index.ts'),
+    path.join(__dirname, '../../dist/routes/*.js'),
+    path.join(__dirname, '../../dist/index.js')
   ]
 };
 
