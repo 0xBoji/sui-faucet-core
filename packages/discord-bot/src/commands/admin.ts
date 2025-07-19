@@ -50,7 +50,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       .setDescription('You need Administrator permissions to use admin commands.')
       .setTimestamp();
 
-    await interaction.reply({ embeds: [noPermEmbed], ephemeral: true });
+    await interaction.reply({ embeds: [noPermEmbed], flags: 64 }); // 64 = EPHEMERAL
     return;
   }
 
@@ -65,7 +65,7 @@ export async function execute(interaction: ChatInputCommandInteraction) {
     guildId: interaction.guildId,
   });
 
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: 64 }); // 64 = EPHEMERAL
 
   try {
     switch (subcommand) {
@@ -114,6 +114,14 @@ async function handleStats(interaction: ChatInputCommandInteraction) {
     faucetApi.getHealth(),
   ]);
 
+  // Try to get admin stats, but don't fail if it doesn't work
+  let adminStats = null;
+  try {
+    adminStats = await faucetApi.getAdminStats(7);
+  } catch (error) {
+    logger.warn('Failed to get admin stats', { error });
+  }
+
   const rateLimitStats = rateLimiter.getStats();
 
   const statsEmbed = new EmbedBuilder()
@@ -147,6 +155,21 @@ async function handleStats(interaction: ChatInputCommandInteraction) {
       inline: true,
     }
   );
+
+  // Admin stats from backend
+  if (adminStats && adminStats.success) {
+    const stats = adminStats.data;
+    statsEmbed.addFields(
+      {
+        name: '📈 Usage Statistics (7 days)',
+        value: `**Total Requests:** ${stats.totalRequests || 0}\n` +
+               `**Successful:** ${stats.successfulRequests || 0}\n` +
+               `**Failed:** ${stats.failedRequests || 0}\n` +
+               `**Unique Users:** ${stats.uniqueUsers || 0}`,
+        inline: true,
+      }
+    );
+  }
 
   // Bot configuration
   statsEmbed.addFields(

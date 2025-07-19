@@ -6,6 +6,33 @@ import { RateLimitError } from './errorHandler.js';
 import { logRateLimit } from '../utils/logger.js';
 import { logger } from '../utils/logger.js';
 
+// Whitelist for internal services (Discord bot, admin tools, etc.)
+const INTERNAL_IPS = [
+  '127.0.0.1',
+  '::1',
+  '::ffff:127.0.0.1',
+  // Add your server's internal IP if needed
+  // '172.31.15.43', // EC2 internal IP
+];
+
+// Check if request is from internal service
+const isInternalRequest = (req: Request): boolean => {
+  const ip = req.ip || req.connection.remoteAddress || '';
+  const userAgent = req.get('User-Agent') || '';
+
+  // Check if IP is whitelisted
+  if (INTERNAL_IPS.includes(ip)) {
+    return true;
+  }
+
+  // Check if request is from Discord bot
+  if (userAgent.includes('axios') && req.get('X-API-Key') === config.auth.apiKey) {
+    return true;
+  }
+
+  return false;
+};
+
 // Rate limiter instances
 let ipRateLimiter: RateLimiterRedis;
 let globalRateLimiter: RateLimiterRedis;
@@ -96,6 +123,12 @@ export const rateLimiter = async (req: Request, res: Response, next: NextFunctio
   try {
     const clientIP = getClientIP(req);
     const requestId = req.requestId || 'unknown';
+
+    // Skip rate limiting for internal requests (Discord bot, etc.)
+    if (isInternalRequest(req)) {
+      console.log(`🔥 DEBUG: Skipping rate limit for internal request from ${clientIP}`);
+      return next();
+    }
 
     // Skip rate limiting for health checks, auth, admin endpoints, docs, and root
     if (req.path.includes('/health') ||

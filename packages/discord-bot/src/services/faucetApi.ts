@@ -86,10 +86,25 @@ export class FaucetApiService {
       return response.data;
     } catch (error) {
       if (error instanceof AxiosError) {
+        // Handle rate limiting specifically
+        if (error.response?.status === 429) {
+          const errorData = error.response.data;
+          return {
+            success: false,
+            message: errorData.message || 'Rate limit exceeded',
+            error: {
+              code: 'RATE_LIMIT_EXCEEDED',
+              details: errorData.error?.details || 'Please wait before requesting again',
+            },
+            retryAfter: errorData.retryAfter || 3600, // Default 1 hour
+          };
+        }
+
+        // Handle other API errors
         if (error.response?.data) {
           return error.response.data;
         }
-        
+
         return {
           success: false,
           message: `API Error: ${error.message}`,
@@ -128,6 +143,16 @@ export class FaucetApiService {
     } catch (error) {
       logger.error('Health check failed', { error });
       return false;
+    }
+  }
+
+  async getAdminStats(days: number = 7): Promise<any> {
+    try {
+      const response = await this.api.get(`/admin/faucet/stats?days=${days}`);
+      return response.data;
+    } catch (error) {
+      logger.error('Failed to get admin stats', { error });
+      return null;
     }
   }
 }

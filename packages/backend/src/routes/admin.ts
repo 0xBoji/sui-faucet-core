@@ -175,6 +175,14 @@ const generateAdminToken = (): string => {
 
 // Admin authentication middleware
 const adminAuth = (req: Request, res: Response, next: any) => {
+  // Allow Discord bot with API key to access admin endpoints
+  const apiKey = req.get('X-API-Key');
+  const userAgent = req.get('User-Agent') || '';
+
+  if (apiKey === config.auth.apiKey && userAgent.includes('axios')) {
+    return next();
+  }
+
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
