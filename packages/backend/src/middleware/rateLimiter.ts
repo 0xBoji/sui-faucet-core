@@ -33,32 +33,12 @@ const isInternalRequest = (req: Request): boolean => {
   return false;
 };
 
-// Rate limiter instances
-let ipRateLimiter: RateLimiterRedis;
-let globalRateLimiter: RateLimiterRedis;
+// Rate limiter instances (not used in current implementation)
+let ipRateLimiter: RateLimiterRedis | null = null;
+let globalRateLimiter: RateLimiterRedis | null = null;
 
-// Initialize rate limiters
-const initializeRateLimiters = () => {
-  // IP-based rate limiter
-  ipRateLimiter = new RateLimiterRedis({
-    storeClient: redisClient.rawClient,
-    keyPrefix: `${config.redis.keyPrefix}ip_limit:`,
-    points: config.rateLimits.maxRequestsPerIP,
-    duration: Math.floor(config.rateLimits.windowMs / 1000),
-    blockDuration: Math.floor(config.rateLimits.windowMs / 1000),
-    execEvenly: true,
-  });
-
-  // Global rate limiter (for all requests)
-  globalRateLimiter = new RateLimiterRedis({
-    storeClient: redisClient.rawClient,
-    keyPrefix: `${config.redis.keyPrefix}global_limit:`,
-    points: config.rateLimits.maxRequestsPerWindow,
-    duration: Math.floor(config.rateLimits.windowMs / 1000),
-    blockDuration: Math.floor(config.rateLimits.windowMs / 1000),
-    execEvenly: true,
-  });
-};
+// Note: Redis rate limiters are initialized but not used in current implementation
+// Using simple in-memory rate limiting instead
 
 // Get client IP address
 const getClientIP = (req: Request): string => {

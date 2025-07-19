@@ -1,4 +1,4 @@
-import { Pool, PoolClient } from 'pg';
+import { Pool } from 'pg';
 import bcrypt from 'bcrypt';
 import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';

@@ -129,7 +129,7 @@ router.post('/test', (req: Request, res: Response) => {
 });
 
 // SIMPLE TEST ROUTE - Just return OK
-router.get('/simple', (req: Request, res: Response) => {
+router.get('/simple', (_req: Request, res: Response) => {
   console.log('🔥 DEBUG: Simple route hit!');
   res.json({ message: 'Simple route OK!' });
 });

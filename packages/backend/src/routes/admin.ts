@@ -215,7 +215,7 @@ const adminAuth = (req: Request, res: Response, next: any) => {
 // POST /api/v1/admin/login - Admin login
 router.post('/login',
   validate(adminLoginSchema, 'body'),
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: Request, res: Response): Promise<any> => {
     const { username, password } = req.body;
     const requestId = req.requestId;
     const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
@@ -547,10 +547,10 @@ router.post('/clear-cache',
 // GET /api/v1/admin/transactions - Get recent transactions
 router.get('/transactions',
   adminAuth,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: Request, res: Response): Promise<any> => {
     const requestId = req.requestId;
-    const limit = parseInt(req.query.limit as string) || 50;
-    const offset = parseInt(req.query.offset as string) || 0;
+    const limit = parseInt(req.query['limit'] as string) || 50;
+    const offset = parseInt(req.query['offset'] as string) || 0;
 
     try {
       const transactions = await databaseService.getTransactions(limit, offset);
@@ -588,9 +588,9 @@ router.get('/transactions',
 // GET /api/v1/admin/activities - Get admin activities
 router.get('/activities',
   adminAuth,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (req: Request, res: Response): Promise<any> => {
     const requestId = req.requestId;
-    const limit = parseInt(req.query.limit as string) || 50;
+    const limit = parseInt(req.query['limit'] as string) || 50;
 
     try {
       const activities = await databaseService.getAdminActivities(limit);
@@ -975,7 +975,7 @@ router.get('/faucet/stats',
   adminAuth,
   asyncHandler(async (req: Request, res: Response) => {
     const requestId = req.requestId;
-    const days = parseInt(req.query.days as string) || 7;
+    const days = parseInt(req.query['days'] as string) || 7;
 
     try {
       // Get database stats

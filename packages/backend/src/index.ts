@@ -47,7 +47,7 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Basic request logging
-app.use((req, res, next) => {
+app.use((req, _res, next) => {
   const requestId = Math.random().toString(36).substring(2, 15);
   req.requestId = requestId;
   logger.info(`Request received`, {
