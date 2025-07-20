@@ -10,20 +10,48 @@ EMAIL="hoangpichgoodkid@gmail.com"
 
 echo "🔒 Setting up SSL for $DOMAIN"
 
+# Detect OS and set package manager
+if command -v yum &> /dev/null; then
+    PKG_MANAGER="yum"
+    INSTALL_CMD="sudo yum install -y"
+    UPDATE_CMD="sudo yum update -y"
+    EPEL_CMD="sudo yum install -y epel-release"
+elif command -v apt &> /dev/null; then
+    PKG_MANAGER="apt"
+    INSTALL_CMD="sudo apt install -y"
+    UPDATE_CMD="sudo apt update"
+    EPEL_CMD=""
+else
+    echo "❌ Unsupported OS. This script supports Amazon Linux/CentOS (yum) and Ubuntu/Debian (apt)"
+    exit 1
+fi
+
+echo "📦 Detected package manager: $PKG_MANAGER"
+
 # Update system
 echo "📦 Updating system packages..."
-sudo apt update
+$UPDATE_CMD
+
+# Install EPEL repository for Amazon Linux/CentOS (needed for certbot)
+if [ "$PKG_MANAGER" = "yum" ] && [ -n "$EPEL_CMD" ]; then
+    echo "📦 Installing EPEL repository..."
+    $EPEL_CMD
+fi
 
 # Install nginx if not already installed
 if ! command -v nginx &> /dev/null; then
     echo "📦 Installing nginx..."
-    sudo apt install -y nginx
+    $INSTALL_CMD nginx
 fi
 
 # Install certbot
 if ! command -v certbot &> /dev/null; then
     echo "📦 Installing certbot..."
-    sudo apt install -y certbot python3-certbot-nginx
+    if [ "$PKG_MANAGER" = "yum" ]; then
+        $INSTALL_CMD certbot python3-certbot-nginx
+    else
+        $INSTALL_CMD certbot python3-certbot-nginx
+    fi
 fi
 
 # Stop nginx temporarily
