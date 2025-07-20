@@ -70,9 +70,9 @@ sudo systemctl stop nginx
 # Create directory for Let's Encrypt challenges
 sudo mkdir -p /var/www/certbot
 
-# Copy nginx configuration
-echo "📝 Copying nginx configuration..."
-sudo cp nginx/nginx.conf /etc/nginx/nginx.conf
+# Copy nginx configuration (HTTP-only first)
+echo "📝 Copying nginx configuration (HTTP-only)..."
+sudo cp nginx/nginx-http-only.conf /etc/nginx/nginx.conf
 
 # Test nginx configuration
 echo "🧪 Testing nginx configuration..."
@@ -94,8 +94,14 @@ sudo certbot certonly \
     -d $DOMAIN
 
 # Update nginx configuration to use SSL
+echo "🔄 Updating nginx configuration to use SSL..."
+sudo cp nginx/nginx.conf /etc/nginx/nginx.conf
+
+echo "🧪 Testing SSL nginx configuration..."
+sudo nginx -t
+
 echo "🔄 Reloading nginx with SSL configuration..."
-sudo nginx -t && sudo systemctl reload nginx
+sudo systemctl reload nginx
 
 # Setup auto-renewal
 echo "🔄 Setting up auto-renewal..."
