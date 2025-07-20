@@ -175,6 +175,9 @@ const JWT_EXPIRES_IN = '24h';
 // Blacklisted tokens (for logout/revocation)
 const blacklistedTokens = new Set<string>();
 
+// Active admin tokens (for session management)
+const adminTokens = new Set<string>();
+
 // Generate secure admin JWT token
 const generateAdminToken = (user: any): string => {
   return jwt.sign(
@@ -262,7 +265,7 @@ router.post('/login',
 
       if (adminUser) {
         // Generate new admin token
-        const token = generateAdminToken();
+        const token = generateAdminToken(adminUser);
         adminTokens.add(token);
 
         // Log admin activity

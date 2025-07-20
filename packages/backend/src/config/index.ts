@@ -27,7 +27,7 @@ export interface FaucetConfig {
   };
   server: {
     port: number;
-    corsOrigins: string[];
+    corsOrigins: string[] | string;
     requestTimeout: number;
     environment: 'development' | 'production' | 'test';
   };
@@ -61,8 +61,9 @@ for (const envVar of requiredEnvVars) {
 }
 
 // Parse CORS origins
-const parseCorsOrigins = (origins: string | undefined): string[] => {
+const parseCorsOrigins = (origins: string | undefined): string[] | string => {
   if (!origins) return ['http://localhost:3000', 'http://localhost:5173'];
+  if (origins.trim() === '*') return '*';
   return origins.split(',').map(origin => origin.trim());
 };
 
