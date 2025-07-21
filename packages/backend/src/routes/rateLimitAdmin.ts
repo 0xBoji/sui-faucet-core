@@ -3,9 +3,10 @@ import { databaseService } from '../services/database.js';
 import { logger } from '../utils/logger.js';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import { config } from '../config/index.js';
 
 // JWT Configuration
-const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
+const JWT_SECRET = process.env.JWT_SECRET || (config as any).jwtSecret || 'changeme';
 
 // Admin authentication middleware
 const authenticateAdmin = async (req: any, res: any, next: any) => {

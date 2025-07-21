@@ -170,7 +170,7 @@ const adminLoginSchema = Joi.object({
 });
 
 // JWT Configuration
-const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
+const JWT_SECRET = process.env.JWT_SECRET || (config as any).jwtSecret || 'changeme';
 const JWT_EXPIRES_IN = '24h';
 
 // Blacklisted tokens (for logout/revocation)

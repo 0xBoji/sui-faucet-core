@@ -46,6 +46,7 @@ export interface FaucetConfig {
     format: 'json' | 'simple';
     file?: string;
   };
+  jwtSecret: string;
 }
 
 // Validate required environment variables
@@ -112,6 +113,7 @@ export const config: FaucetConfig = {
     format: (process.env['LOG_FORMAT'] as 'json' | 'simple') || 'json',
     ...(process.env['LOG_FILE'] && { file: process.env['LOG_FILE'] }),
   },
+  jwtSecret: process.env['JWT_SECRET'] || 'changeme',
 };
 
 // Validate configuration
