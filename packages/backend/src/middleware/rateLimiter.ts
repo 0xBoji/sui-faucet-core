@@ -104,6 +104,12 @@ export const rateLimiter = async (req: Request, res: Response, next: NextFunctio
     const clientIP = getClientIP(req);
     const requestId = req.requestId || 'unknown';
 
+    // Skip rate limiting if disabled
+    if (!config.rateLimits.enabled) {
+      console.log(`🔥 DEBUG: Rate limiting disabled globally`);
+      return next();
+    }
+
     // Skip rate limiting for internal requests (Discord bot, etc.)
     if (isInternalRequest(req)) {
       console.log(`🔥 DEBUG: Skipping rate limit for internal request from ${clientIP}`);

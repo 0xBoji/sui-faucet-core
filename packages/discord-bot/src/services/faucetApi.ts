@@ -21,6 +21,7 @@ export interface FaucetStatus {
   faucetAddress: string;
   balance: string;
   balanceSui: number;
+  balanceInSui: number; // Alias for compatibility
   network: string;
   rpcUrl: string;
   defaultAmount: string;
@@ -28,6 +29,7 @@ export interface FaucetStatus {
   maxAmount: string;
   maxAmountSui: number;
   isLowBalance: boolean;
+  isHealthy: boolean;
   rateLimits: {
     windowMs: number;
     maxRequestsPerWallet: number;

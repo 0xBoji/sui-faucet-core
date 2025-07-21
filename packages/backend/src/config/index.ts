@@ -19,6 +19,7 @@ export interface FaucetConfig {
     maxRequestsPerIP: number;
     skipSuccessfulRequests: boolean;
     skipFailedRequests: boolean;
+    enabled: boolean;
   };
   auth: {
     apiKey: string;
@@ -84,6 +85,7 @@ export const config: FaucetConfig = {
     maxRequestsPerIP: parseInt(process.env['RATE_LIMIT_MAX_PER_IP'] || '50'),  // Increased from 5 to 50
     skipSuccessfulRequests: process.env['RATE_LIMIT_SKIP_SUCCESS'] === 'true',
     skipFailedRequests: process.env['RATE_LIMIT_SKIP_FAILED'] === 'true',
+    enabled: process.env['RATE_LIMIT_ENABLED'] !== 'false',
   },
   auth: {
     apiKey: process.env['API_KEY'] || 'suisuisui',
