@@ -35,7 +35,8 @@ export interface AdminActivity {
   action: string;
   details?: string;
   ip_address: string;
-  created_at: string;
+  user_agent?: string;
+  created_at?: string;
 }
 
 export interface AdminUser {
@@ -94,7 +95,7 @@ class DatabaseService {
     }
   }
 
-  private async query(text: string, params?: any[]): Promise<any> {
+  async query(text: string, params?: any[]): Promise<any> {
     if (!this.pool) {
       throw new Error('Database not connected');
     }

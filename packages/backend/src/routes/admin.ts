@@ -10,6 +10,7 @@ import Joi from 'joi';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
+import { rateLimitAdminRoutes } from './rateLimitAdmin.js';
 
 const router = Router();
 
@@ -1204,5 +1205,8 @@ router.post('/faucet/test',
     }
   })
 );
+
+// Mount rate limit admin routes
+router.use('/', rateLimitAdminRoutes);
 
 export { router as adminRoutes };
