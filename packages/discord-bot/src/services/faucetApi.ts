@@ -20,12 +20,20 @@ export interface FaucetStatus {
   success: boolean;
   faucetAddress: string;
   balance: string;
-  balanceInSui: number;
+  balanceSui: number;
   network: string;
   rpcUrl: string;
   defaultAmount: string;
-  defaultAmountInSui: number;
-  isHealthy: boolean;
+  defaultAmountSui: number;
+  maxAmount: string;
+  maxAmountSui: number;
+  isLowBalance: boolean;
+  rateLimits: {
+    windowMs: number;
+    maxRequestsPerWallet: number;
+    maxRequestsPerIP: number;
+  };
+  isOperational: boolean;
 }
 
 export class FaucetApiService {

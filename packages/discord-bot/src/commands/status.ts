@@ -55,12 +55,12 @@ export async function execute(interaction: ChatInputCommandInteraction) {
       statusEmbed.addFields(
         {
           name: '💰 Faucet Balance',
-          value: `${faucetStatus.balanceInSui.toFixed(4)} SUI`,
+          value: `${faucetStatus.balanceSui.toFixed(4)} SUI`,
           inline: true,
         },
         {
           name: '🎁 Default Amount',
-          value: `${faucetStatus.defaultAmountInSui} SUI`,
+          value: `${faucetStatus.defaultAmountSui} SUI`,
           inline: true,
         },
         {

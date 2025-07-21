@@ -132,9 +132,9 @@ async function handleStats(interaction: ChatInputCommandInteraction) {
 
   // Faucet stats
   if (faucetStatus && faucetStatus.success) {
-    const balance = faucetStatus.balanceInSui || 0;
+    const balance = faucetStatus.balanceSui || 0;
     const network = faucetStatus.network || 'unknown';
-    const defaultAmount = faucetStatus.defaultAmountInSui || 0;
+    const defaultAmount = faucetStatus.defaultAmountSui || 0;
 
     statsEmbed.addFields(
       {
