@@ -116,6 +116,100 @@ router.get('/rate-limits', authenticateAdmin, async (req, res) => {
 
 /**
  * @swagger
+ * /api/v1/admin/rate-limits/bulk:
+ *   put:
+ *     summary: Bulk update rate limit settings
+ *     tags: [Admin Rate Limits]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               settings:
+ *                 type: object
+ *                 additionalProperties: true
+ *             required:
+ *               - settings
+ *     responses:
+ *       200:
+ *         description: Settings updated successfully
+ */
+router.put('/rate-limits/bulk', authenticateAdmin, async (req, res) => {
+  try {
+    const { settings } = req.body;
+    const adminUser = (req as any).user?.username || 'admin';
+
+    if (!settings || typeof settings !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'Settings object is required'
+      });
+    }
+
+    const updates = [];
+    const errors = [];
+
+    // Process each setting
+    for (const [settingName, value] of Object.entries(settings)) {
+      try {
+        const updateQuery = `
+          UPDATE rate_limit_settings
+          SET setting_value = $1, updated_by = $2, updated_at = CURRENT_TIMESTAMP
+          WHERE setting_name = $3 AND is_active = true
+        `;
+
+        const result = await databaseService.query(updateQuery, [
+          value?.toString(),
+          adminUser,
+          settingName
+        ]);
+
+        if (result.rowCount && result.rowCount > 0) {
+          updates.push({ setting_name: settingName, new_value: value });
+        } else {
+          errors.push({ setting_name: settingName, error: 'Setting not found' });
+        }
+      } catch (error: any) {
+        errors.push({ setting_name: settingName, error: error.message });
+      }
+    }
+
+    // Log admin activity
+    await databaseService.saveAdminActivity({
+      admin_username: adminUser,
+      action: 'bulk_update_rate_limit_settings',
+      details: `Updated ${updates.length} settings, ${errors.length} errors`,
+      ip_address: req.ip || 'unknown',
+      user_agent: req.get('User-Agent') || 'unknown'
+    });
+
+    logger.info(`Bulk rate limit settings update by ${adminUser}: ${updates.length} success, ${errors.length} errors`);
+
+    res.json({
+      success: errors.length === 0,
+      message: `Updated ${updates.length} settings${errors.length > 0 ? `, ${errors.length} errors` : ''}`,
+      data: {
+        updated: updates,
+        errors: errors,
+        updated_by: adminUser
+      }
+    });
+  } catch (error: any) {
+    logger.error('Error bulk updating rate limit settings:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to bulk update rate limit settings',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @swagger
  * /api/v1/admin/rate-limits/{settingName}:
  *   put:
  *     summary: Update a rate limit setting
@@ -147,96 +241,6 @@ router.get('/rate-limits', authenticateAdmin, async (req, res) => {
  *         description: Setting updated successfully
  */
 router.put('/rate-limits/:settingName', authenticateAdmin, async (req, res) => {
-  try {
-    const { settingName } = req.params;
-    const { value } = req.body;
-    const adminUser = (req as any).user?.username || 'admin';
-
-    if (value === undefined || value === null) {
-      return res.status(400).json({
-        success: false,
-        message: 'Setting value is required'
-      });
-    }
-
-    // Check if setting exists
-    const checkQuery = `
-      SELECT setting_type FROM rate_limit_settings 
-      WHERE setting_name = $1 AND is_active = true
-    `;
-    const checkResult = await databaseService.query(checkQuery, [settingName]);
-    
-    if (checkResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Rate limit setting not found'
-      });
-    }
-
-    // Update the setting
-    const updateQuery = `
-      UPDATE rate_limit_settings 
-      SET setting_value = $1, updated_by = $2, updated_at = CURRENT_TIMESTAMP
-      WHERE setting_name = $3 AND is_active = true
-    `;
-    
-    await databaseService.query(updateQuery, [value.toString(), adminUser, settingName]);
-
-    // Log admin activity
-    await databaseService.saveAdminActivity({
-      admin_username: adminUser,
-      action: 'update_rate_limit_setting',
-      details: `Updated ${settingName} to ${value}`,
-      ip_address: req.ip || 'unknown',
-      user_agent: req.get('User-Agent') || 'unknown'
-    });
-
-    logger.info(`Rate limit setting updated: ${settingName} = ${value} by ${adminUser}`);
-
-    res.json({
-      success: true,
-      message: 'Rate limit setting updated successfully',
-      data: {
-        setting_name: settingName,
-        new_value: value,
-        updated_by: adminUser
-      }
-    });
-  } catch (error: any) {
-    logger.error('Error updating rate limit setting:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update rate limit setting',
-      error: error.message
-    });
-  }
-});
-
-/**
- * @swagger
- * /api/v1/admin/rate-limits/bulk:
- *   put:
- *     summary: Bulk update rate limit settings
- *     tags: [Admin Rate Limits]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               settings:
- *                 type: object
- *                 additionalProperties: true
- *             required:
- *               - settings
- *     responses:
- *       200:
- *         description: Settings updated successfully
- */
-router.put('/rate-limits/bulk', authenticateAdmin, async (req, res) => {
   try {
     const { settings } = req.body;
     const adminUser = (req as any).user?.username || 'admin';
