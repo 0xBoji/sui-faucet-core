@@ -1,7 +1,5 @@
 import { SuiClient, getFullnodeUrl } from '@mysten/sui/client';
-import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
-import { Transaction } from '@mysten/sui/transactions';
-import { fromB64 } from '@mysten/sui/utils';
+import { getFaucetHost, requestSuiFromFaucetV2 } from '@mysten/sui/faucet';
 import { config } from '../config/index.js';
 import { logger, logError, logSuiTransaction, logWalletBalance } from '../utils/logger.js';
 
@@ -20,8 +18,8 @@ export interface WalletInfo {
 
 class SuiService {
   private client: SuiClient;
-  private keypair: Ed25519Keypair;
-  private walletAddress: string;
+  private faucetHost: string;
+  private walletAddress: string = 'official-faucet'; // Placeholder for compatibility
   private isInitialized = false;
 
   constructor() {
@@ -30,54 +28,23 @@ class SuiService {
       url: config.sui.rpcUrl || getFullnodeUrl(config.sui.network),
     });
 
-    // Initialize keypair from private key
-    try {
-      let privateKeyBytes: Uint8Array;
+    // Get faucet host for the network
+    this.faucetHost = getFaucetHost(config.sui.network);
 
-      if (config.sui.privateKey.startsWith('suiprivkey1')) {
-        // Handle Sui private key format (bech32)
-        this.keypair = Ed25519Keypair.fromSecretKey(config.sui.privateKey);
-      } else {
-        // Handle base64 format
-        privateKeyBytes = fromB64(config.sui.privateKey);
-        this.keypair = Ed25519Keypair.fromSecretKey(privateKeyBytes);
-      }
-
-      this.walletAddress = this.keypair.getPublicKey().toSuiAddress();
-      logger.info(`Sui wallet initialized: ${this.walletAddress}`);
-    } catch (error) {
-      logError(error as Error, { context: 'Sui keypair initialization' });
-      throw new Error('Failed to initialize Sui keypair from private key');
-    }
+    logger.info(`Sui service initialized for network: ${config.sui.network}`);
+    logger.info(`Using faucet host: ${this.faucetHost}`);
   }
 
   async initialize(): Promise<void> {
     try {
       // Test connection
       await this.client.getLatestSuiSystemState();
-      
-      // Check wallet balance
-      const balance = await this.getWalletBalance();
-      const minBalance = BigInt(config.sui.minWalletBalance);
-      
-      if (balance < minBalance) {
-        const balanceInSui = Number(balance) / 1_000_000_000;
-        const minBalanceInSui = Number(minBalance) / 1_000_000_000;
-        
-        logWalletBalance(
-          balanceInSui.toString(),
-          minBalanceInSui.toString(),
-          true
-        );
-        
-        logger.warn(`⚠️  Wallet balance is low: ${balanceInSui} SUI (minimum: ${minBalanceInSui} SUI)`);
-      } else {
-        const balanceInSui = Number(balance) / 1_000_000_000;
-        logger.info(`✅ Wallet balance: ${balanceInSui} SUI`);
-      }
 
       this.isInitialized = true;
-      logger.info('Sui service initialized successfully');
+      logger.info('✅ Sui service initialized successfully', {
+        network: config.sui.network,
+        faucetHost: this.faucetHost,
+      });
     } catch (error) {
       logError(error as Error, { context: 'Sui service initialization' });
       throw error;
@@ -90,33 +57,23 @@ class SuiService {
     logger.info('Sui service disconnected');
   }
 
+  // Compatibility methods for existing code
   async getWalletBalance(): Promise<bigint> {
-    try {
-      const balance = await this.client.getBalance({
-        owner: this.walletAddress,
-      });
-      
-      return BigInt(balance.totalBalance);
-    } catch (error) {
-      logError(error as Error, { context: 'Get wallet balance' });
-      throw error;
-    }
+    // Return a placeholder balance since we're using official faucet
+    return BigInt('1000000000000'); // 1000 SUI placeholder
   }
 
   async getWalletInfo(): Promise<WalletInfo> {
-    try {
-      const balance = await this.getWalletBalance();
-      const minBalance = BigInt(config.sui.minWalletBalance);
-      
-      return {
-        address: this.walletAddress,
-        balance,
-        isLowBalance: balance < minBalance,
-      };
-    } catch (error) {
-      logError(error as Error, { context: 'Get wallet info' });
-      throw error;
-    }
+    const balance = await this.getWalletBalance();
+    return {
+      address: this.walletAddress,
+      balance,
+      isLowBalance: false, // Never low since using official faucet
+    };
+  }
+
+  getWalletAddress(): string {
+    return this.walletAddress;
   }
 
   validateAddress(address: string): boolean {
@@ -172,14 +129,13 @@ class SuiService {
       console.log(`🔥 DEBUG: Address validation passed`);
 
       // Normalize address (add 0x prefix if missing)
-      const normalizedAddress = recipientAddress.startsWith('0x') 
-        ? recipientAddress 
+      const normalizedAddress = recipientAddress.startsWith('0x')
+        ? recipientAddress
         : `0x${recipientAddress}`;
 
-      // Check if we have enough balance
-      const currentBalance = await this.getWalletBalance();
+      // Check amount limits
       const maxAmount = BigInt(config.sui.maxAmount);
-      
+
       if (amount > maxAmount) {
         return {
           success: false,
@@ -187,69 +143,50 @@ class SuiService {
         };
       }
 
-      if (currentBalance < amount) {
-        return {
-          success: false,
-          error: 'Insufficient faucet balance',
-        };
-      }
+      // Use official Sui faucet
+      console.log(`🔥 DEBUG: Requesting SUI from official faucet for ${normalizedAddress}`);
 
-      // Create transaction
-      const tx = new Transaction();
-      
-      // Split coins and transfer
-      const [coin] = tx.splitCoins(tx.gas, [amount]);
-      tx.transferObjects([coin], normalizedAddress);
-
-      // Execute transaction
-      const result = await this.client.signAndExecuteTransaction({
-        transaction: tx,
-        signer: this.keypair,
-        options: {
-          showEffects: true,
-          showEvents: true,
-        },
+      const faucetResult = await requestSuiFromFaucetV2({
+        host: this.faucetHost,
+        recipient: normalizedAddress,
       });
 
-      // Check if transaction was successful
-      if (result.effects?.status?.status !== 'success') {
-        const error = result.effects?.status?.error || 'Transaction failed';
-        logError(new Error(error), { 
-          context: 'Sui transaction failed',
-          requestId,
-          recipientAddress: normalizedAddress,
-          amount: amount.toString(),
-        });
-        
+      console.log(`🔥 DEBUG: Faucet result:`, faucetResult);
+
+      // Check if faucet request was successful
+      if (!faucetResult) {
         return {
           success: false,
-          error: `Transaction failed: ${error}`,
+          error: 'Failed to request SUI from faucet',
         };
       }
 
-      const transactionHash = result.digest;
-      const gasUsed = result.effects?.gasUsed?.computationCost || '0';
+      // Extract transaction hash from faucet response
+      const transactionHash = typeof faucetResult === 'string' ? faucetResult :
+                             (faucetResult as any).task ||
+                             (faucetResult as any).digest ||
+                             'faucet-request-success';
 
       // Log successful transaction
       logSuiTransaction(
         requestId,
         transactionHash,
-        this.walletAddress,
+        'official-faucet',
         normalizedAddress,
         amount.toString(),
-        gasUsed
+        '0' // No gas cost for faucet requests
       );
 
-      logger.info(`✅ Sent ${Number(amount) / 1_000_000_000} SUI to ${normalizedAddress}`, {
+      logger.info(`✅ Requested SUI from official faucet for ${normalizedAddress}`, {
         transactionHash,
-        gasUsed,
+        faucetHost: this.faucetHost,
         requestId,
       });
 
       return {
         success: true,
         transactionHash,
-        gasUsed,
+        gasUsed: '0', // No gas cost for faucet requests
       };
 
     } catch (error) {
@@ -270,23 +207,19 @@ class SuiService {
   async healthCheck(): Promise<{ status: 'healthy' | 'unhealthy'; details: Record<string, any> }> {
     try {
       const start = Date.now();
-      
+
       // Test RPC connection
       const systemState = await this.client.getLatestSuiSystemState();
       const rpcLatency = Date.now() - start;
 
-      // Check wallet balance
-      const walletInfo = await this.getWalletInfo();
-      
       const details = {
         rpcLatency,
-        walletAddress: this.walletAddress,
-        walletBalance: walletInfo.balance.toString(),
-        walletBalanceSui: Number(walletInfo.balance) / 1_000_000_000,
-        isLowBalance: walletInfo.isLowBalance,
         epoch: systemState.epoch,
         network: config.sui.network,
         rpcUrl: config.sui.rpcUrl,
+        faucetHost: this.faucetHost,
+        usingOfficialFaucet: true,
+        walletAddress: this.walletAddress,
       };
 
       return {
@@ -296,13 +229,13 @@ class SuiService {
 
     } catch (error) {
       logError(error as Error, { context: 'Sui health check' });
-      
+
       return {
         status: 'unhealthy',
         details: {
           error: error instanceof Error ? error.message : 'Unknown error',
-          walletAddress: this.walletAddress,
           network: config.sui.network,
+          walletAddress: this.walletAddress,
           rpcUrl: config.sui.rpcUrl,
         },
       };
