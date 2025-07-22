@@ -397,8 +397,46 @@ router.post('/request',
   })
 );
 
+// GET /api/v1/faucet/mode - Get current faucet mode
+router.get('/mode', requireApiKey, asyncHandler(async (req: Request, res: Response) => {
+  try {
+    // Get faucet mode from database
+    const query = `
+      SELECT setting_value FROM rate_limit_settings
+      WHERE setting_name = 'faucet_mode' AND is_active = true
+    `;
+    const result = await databaseService.query(query);
+
+    let mode = 'wallet'; // Default mode
+    if (result.rows.length > 0) {
+      mode = result.rows[0].setting_value === 'sui_sdk' ? 'sui_sdk' : 'wallet';
+    }
+
+    const description = mode === 'sui_sdk'
+      ? 'Using official Sui faucet - frontend should handle requests directly'
+      : 'Using backend wallet - send requests to backend API';
+
+    res.json({
+      success: true,
+      data: {
+        mode,
+        description,
+        timestamp: new Date().toISOString()
+      }
+    });
+
+  } catch (error: any) {
+    logger.error('Error getting faucet mode:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get faucet mode',
+      error: error.message
+    });
+  }
+}));
+
 // GET /api/v1/faucet/status - Get faucet status
-router.get('/status', 
+router.get('/status',
   asyncHandler(async (req: Request, res: Response) => {
     try {
       const walletInfo = await suiService.getWalletInfo();
