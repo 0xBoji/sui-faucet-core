@@ -259,8 +259,21 @@ router.post('/request',
           result.transactionHash
         );
 
-        // Save minimal metrics only (no sensitive data)
+        // Save transaction to database
         try {
+          // Save full transaction record
+          await databaseService.saveTransaction({
+            request_id: requestId,
+            wallet_address: validAddress,
+            amount: amountToSend.toString(),
+            transaction_hash: result.transactionHash || '',
+            status: 'success',
+            ip_address: clientIP,
+            user_agent: req.get('User-Agent') || 'unknown',
+            created_at: new Date().toISOString(),
+          });
+
+          // Also save minimal metrics (for backward compatibility)
           await databaseService.saveMetrics({
             date: new Date().toISOString().split('T')[0]!, // YYYY-MM-DD
             amount: amountToSend.toString(),
@@ -268,7 +281,7 @@ router.post('/request',
             ...(result.transactionHash && { transaction_hash: result.transactionHash }), // For debugging only
           });
         } catch (dbError: any) {
-          logger.error('Failed to save metrics to database', {
+          logger.error('Failed to save transaction to database', {
             requestId,
             error: dbError.message,
           });
@@ -309,8 +322,22 @@ router.post('/request',
           result.error
         );
 
-        // Save failed metrics
+        // Save failed transaction to database
         try {
+          // Save full transaction record
+          await databaseService.saveTransaction({
+            request_id: requestId,
+            wallet_address: validAddress,
+            amount: amountToSend.toString(),
+            transaction_hash: '',
+            status: 'failed',
+            error_message: result.error || 'Unknown error',
+            ip_address: clientIP,
+            user_agent: req.get('User-Agent') || 'unknown',
+            created_at: new Date().toISOString(),
+          });
+
+          // Also save minimal metrics (for backward compatibility)
           await databaseService.saveMetrics({
             date: new Date().toISOString().split('T')[0]!,
             amount: amountToSend.toString(),
@@ -318,7 +345,7 @@ router.post('/request',
             error_type: 'network_error',
           });
         } catch (dbError: any) {
-          logger.error('Failed to save failed metrics', {
+          logger.error('Failed to save failed transaction', {
             requestId,
             error: dbError.message,
           });
@@ -416,11 +443,18 @@ router.get('/mode', requireApiKey, asyncHandler(async (req: Request, res: Respon
       ? 'Using official Sui faucet - frontend should handle requests directly'
       : 'Using backend wallet - send requests to backend API';
 
+    // Get wallet address if in wallet mode
+    let walletAddress = null;
+    if (mode === 'wallet') {
+      walletAddress = suiService.getWalletAddress();
+    }
+
     res.json({
       success: true,
       data: {
         mode,
         description,
+        walletAddress,
         timestamp: new Date().toISOString()
       }
     });
